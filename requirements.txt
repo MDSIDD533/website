@@ -1,0 +1,29 @@
+# Core Web Backend & Real-time Progress
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+python-multipart>=0.0.9
+python-dotenv>=1.0.0
+
+# 3D Animation & Raytracing Engine (Blender 4.2 LTS Python Module - GPL-3.0)
+bpy==4.2.15
+
+# Video & Audio Encoding, Decoding, and Verification (FFmpeg / PyAV)
+imageio-ffmpeg>=0.6.0
+av>=14.0.0
+
+# Local Multi-Voice Speech Synthesis & Phoneme/Viseme Engine (MIT / GPL-3.0 espeak-ng data)
+piper-tts>=1.2.0
+onnxruntime>=1.19.0
+
+# Procedural Audio DSP, Image Processing & Hardware Inspection
+numpy>=1.26.4,<2.7
+scipy>=1.13.0
+Pillow>=10.4.0
+psutil>=6.0.0
+requests>=2.31.0
+
+# Automated Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
+httpx>=0.27.0

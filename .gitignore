@@ -1,0 +1,49 @@
+# Python & virtual environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+.vite/
+
+# Local runtime workspace, user projects, generated media & databases
+workspace_data/
+models_data/
+logs/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Large media & model weights (never commit to Git)
+*.mp4
+*.mkv
+*.mov
+*.webm
+*.wav
+*.mp3
+*.flac
+*.ogg
+*.blend
+*.blend1
+*.onnx
+*.gguf
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+
+# Secrets & local env overrides
+.env
+.env.local
