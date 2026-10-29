@@ -16,7 +16,9 @@ jobs:
       - name: Install routine CI dependencies (no multi-GB model downloads)
         run: |
           python -m pip install --upgrade pip
-          pip install fastapi "uvicorn[standard]" pydantic python-multipart python-dotenv imageio-ffmpeg av piper-tts onnxruntime "numpy<2.7" scipy Pillow psutil requests pytest pytest-asyncio httpx
+          pip install fastapi "uvicorn[standard]" pydantic python-multipart python-dotenv imageio-ffmpeg av bpy==4.2.15 piper-tts onnxruntime "numpy<2.7" scipy Pillow psutil requests pytest pytest-asyncio httpx
+      - name: Prepare headless Blender Python module
+        run: python scripts/setup_headless_bpy.py
       - name: Run unit, security, offline, license, and API tests
         run: pytest -m "not e2e" -v
 
