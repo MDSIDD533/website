@@ -40,6 +40,39 @@ def compute_dimensions(resolution: str, aspect_ratio: str) -> tuple[int, int]:
     return (w + (w % 2), h + (h % 2))
 
 
+def _configure_cinematic_post(bpy: Any) -> None:
+    """Subtle torch bloom + warm-shadow/cool-highlight grade for cinematic renders.
+
+    Kept intentionally gentle: the sunset fortress palette is already warm, so
+    this only adds fog-glow around emissives above luminance 1.0 and a small
+    lift/gain split-tone. Applied in Blender's compositor before PNG write.
+    """
+    scene = bpy.context.scene
+    scene.use_nodes = True
+    tree = scene.node_tree
+    for node in list(tree.nodes):
+        tree.nodes.remove(node)
+
+    render_layers = tree.nodes.new("CompositorNodeRLayers")
+    glare = tree.nodes.new("CompositorNodeGlare")
+    glare.glare_type = "FOG_GLOW"
+    glare.quality = "HIGH"
+    glare.threshold = 1.0
+    glare.mix = -0.08
+    glare.size = 8
+
+    grade = tree.nodes.new("CompositorNodeColorBalance")
+    grade.correction_method = "LIFT_GAMMA_GAIN"
+    grade.lift = (0.97, 1.01, 1.05)
+    grade.gamma = (1.0, 1.0, 1.0)
+    grade.gain = (1.05, 1.01, 0.97)
+
+    composite = tree.nodes.new("CompositorNodeComposite")
+    tree.links.new(render_layers.outputs["Image"], glare.inputs["Image"])
+    tree.links.new(glare.outputs["Image"], grade.inputs["Image"])
+    tree.links.new(grade.outputs["Image"], composite.inputs["Image"])
+
+
 def _configure_cycles(bpy: Any, quality_profile: str, width: int, height: int) -> dict[str, Any]:
     scene = bpy.context.scene
     scene.render.engine = "CYCLES"
@@ -48,7 +81,16 @@ def _configure_cycles(bpy: Any, quality_profile: str, width: int, height: int) -
     scene.cycles.use_adaptive_sampling = True
     scene.cycles.adaptive_threshold = 0.08
 
-    if quality_profile == "high_quality":
+    is_cinematic = quality_profile == "cinematic"
+    if is_cinematic:
+        # Full-resolution showcase preset. Adaptive sampling makes 64 the cap,
+        # not the cost of every pixel; OIDN then removes the remaining grain.
+        samples = 64
+        scale_pct = 100
+        bounces = 4
+        use_denoise = True
+        scene.cycles.adaptive_threshold = 0.01
+    elif quality_profile == "high_quality":
         samples = 14
         scale_pct = 100
         bounces = 3
@@ -67,11 +109,32 @@ def _configure_cycles(bpy: Any, quality_profile: str, width: int, height: int) -
 
     scene.cycles.samples = samples
     scene.cycles.max_bounces = bounces
-    scene.cycles.diffuse_bounces = 1
-    scene.cycles.glossy_bounces = 1
-    scene.cycles.transmission_bounces = 1
-    scene.cycles.volume_bounces = 0
+    if is_cinematic:
+        scene.cycles.diffuse_bounces = 3
+        scene.cycles.glossy_bounces = 3
+        scene.cycles.transmission_bounces = 2
+        scene.cycles.volume_bounces = 1
+        scene.cycles.sample_clamp_indirect = 8.0
+        scene.cycles.caustics_reflective = False
+        scene.cycles.caustics_refractive = False
+        scene.cycles.use_light_tree = True
+    else:
+        scene.cycles.diffuse_bounces = 1
+        scene.cycles.glossy_bounces = 1
+        scene.cycles.transmission_bounces = 1
+        scene.cycles.volume_bounces = 0
     scene.cycles.use_denoising = use_denoise
+    if use_denoise:
+        scene.cycles.denoiser = "OPENIMAGEDENOISE"
+        scene.cycles.denoising_input_passes = "RGB_ALBEDO_NORMAL"
+        scene.cycles.denoising_prefilter = "ACCURATE"
+
+    if is_cinematic:
+        # AgX (Blender 4.2 default) with a touch of extra exposure; the split
+        # tone itself lives in the compositor so previews stay honest stills.
+        scene.view_settings.view_transform = "AgX"
+        scene.view_settings.exposure = 0.12
+        _configure_cinematic_post(bpy)
 
     scene.render.resolution_x = width
     scene.render.resolution_y = height
@@ -84,6 +147,8 @@ def _configure_cycles(bpy: Any, quality_profile: str, width: int, height: int) -
         "scale_pct": scale_pct,
         "bounces": bounces,
         "use_denoise": use_denoise,
+        "adaptive_threshold": scene.cycles.adaptive_threshold,
+        "quality_profile": quality_profile,
     }
 
 
@@ -100,7 +165,7 @@ def render_character_preview(spec: dict[str, Any]) -> dict[str, Any]:
     out_png = Path(spec["output_png"])
     out_png.parent.mkdir(parents=True, exist_ok=True)
 
-    _configure_cycles(bpy, "balanced", 640, 640)
+    _configure_cycles(bpy, spec.get("quality_profile", "balanced"), 640, 640)
     build_environment_in_blender(
         bpy,
         environment_preset="palace",
@@ -146,7 +211,7 @@ def render_environment_preview(spec: dict[str, Any]) -> dict[str, Any]:
     out_png = Path(spec["output_png"])
     out_png.parent.mkdir(parents=True, exist_ok=True)
 
-    _configure_cycles(bpy, "balanced", 800, 450)
+    _configure_cycles(bpy, spec.get("quality_profile", "balanced"), 800, 450)
     build_environment_in_blender(
         bpy,
         environment_preset=spec.get("environment_preset", "fortress"),

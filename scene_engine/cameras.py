@@ -6,13 +6,16 @@ import math
 from typing import Any
 
 CAMERA_SHOT_CATALOG: list[dict[str, Any]] = [
-    {"id": "establishing", "label": "Establishing Wide Shot", "lens_mm": 24.0, "dist": 7.4, "height": 2.8},
-    {"id": "wide", "label": "Wide Full-Body Shot", "lens_mm": 32.0, "dist": 5.4, "height": 1.85},
-    {"id": "medium", "label": "Medium Conversation Shot", "lens_mm": 45.0, "dist": 3.4, "height": 1.52},
-    {"id": "close_up", "label": "Close-Up Portrait Shot", "lens_mm": 65.0, "dist": 2.05, "height": 1.56},
-    {"id": "tracking", "label": "Tracking Follow Shot", "lens_mm": 35.0, "dist": 4.2, "height": 1.65},
-    {"id": "over_the_shoulder", "label": "Over-The-Shoulder Dialogue Shot", "lens_mm": 50.0, "dist": 3.1, "height": 1.60},
-    {"id": "action", "label": "Dynamic Action / Combat Shot", "lens_mm": 28.0, "dist": 4.3, "height": 1.42},
+    # Establishing was 7.4m away at 2.8m high: characters filled a quarter of
+    # the frame height and faces were unreadable. This closer, lower framing
+    # still shows the full fortress while giving people real screen presence.
+    {"id": "establishing", "label": "Establishing Wide Shot", "lens_mm": 30.0, "dist": 5.9, "height": 1.62, "fstop": 5.6},
+    {"id": "wide", "label": "Wide Full-Body Shot", "lens_mm": 34.0, "dist": 4.9, "height": 1.50, "fstop": 4.5},
+    {"id": "medium", "label": "Medium Conversation Shot", "lens_mm": 45.0, "dist": 3.3, "height": 1.38, "fstop": 2.8},
+    {"id": "close_up", "label": "Close-Up Portrait Shot", "lens_mm": 65.0, "dist": 2.0, "height": 1.50, "fstop": 2.8},
+    {"id": "tracking", "label": "Tracking Follow Shot", "lens_mm": 35.0, "dist": 4.0, "height": 1.45, "fstop": 3.5},
+    {"id": "over_the_shoulder", "label": "Over-The-Shoulder Dialogue Shot", "lens_mm": 50.0, "dist": 3.0, "height": 1.50, "fstop": 2.8},
+    {"id": "action", "label": "Dynamic Action / Combat Shot", "lens_mm": 28.0, "dist": 4.1, "height": 1.20, "fstop": 4.0},
 ]
 
 CAMERA_MOVEMENTS = [
@@ -47,6 +50,13 @@ def setup_cinematic_camera(
 
     cam_data = bpy.data.cameras.new(name="StudioCamera")
     cam_data.lens = float(preset["lens_mm"])
+    cam_data.clip_end = 120.0
+    # Shallow, shot-appropriate depth of field focused on the actors; both
+    # characters share roughly the same depth plane in two-shots, so the
+    # fortress softens behind them instead of competing for attention.
+    cam_data.dof.use_dof = True
+    cam_data.dof.focus_object = target
+    cam_data.dof.aperture_fstop = float(preset.get("fstop", 4.0))
     cam_obj = bpy.data.objects.new(name="StudioCamera", object_data=cam_data)
     col.objects.link(cam_obj)
     scene.camera = cam_obj
@@ -58,7 +68,11 @@ def setup_cinematic_camera(
 
     dist = float(preset["dist"])
     z_h = float(preset["height"])
-    base_ang = math.radians(angle_offset_deg)
+    # Dialogue blocking makes partners face each other along ±X. A camera at
+    # 0° therefore sees both as flat side profiles with overlapping legs.
+    # A gentle 14° offset adds depth without emptying the backdrop (actors
+    # additionally cheat a few degrees toward camera in choreography).
+    base_ang = math.radians(angle_offset_deg if angle_offset_deg else 14.0)
     if shot_type == "over_the_shoulder":
         base_ang += 0.38
 

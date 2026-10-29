@@ -74,8 +74,16 @@ def resolve_collision_free_positions(positions: list[dict[str, Any]], min_dist: 
             dx = float(partner["x"]) - float(resolved[i]["x"])
             dy = float(partner["y"]) - float(resolved[i]["y"])
             # In Blender +Y is depth away from default -Y camera; yaw 0 faces -Y (camera)
-            yaw_rad = math.atan2(dx, -dy)
-            resolved[i]["yaw_deg"] = round(math.degrees(yaw_rad), 1)
+            yaw_deg = math.degrees(math.atan2(dx, -dy))
+            # Film-blocking cheat: actors in pure profile (±90°) read as flat
+            # paper cut-outs. Turn each partner 18° toward camera so the
+            # audience sees a three-quarter face/body while the pair still
+            # clearly addresses each other.
+            if yaw_deg > 25.0:
+                yaw_deg -= 18.0
+            elif yaw_deg < -25.0:
+                yaw_deg += 18.0
+            resolved[i]["yaw_deg"] = round(yaw_deg, 1)
     elif n == 1:
         resolved[0].setdefault("yaw_deg", 12.0)
 
@@ -122,6 +130,17 @@ def plan_scene_choreography(
                 y = round(1.2 + math.sin(angle) * 0.9, 2)
                 clip = "group_move" if "group_move" in actions else "idle"
 
+            if is_combat:
+                expression = "angry" if idx == 1 else "determined"
+            elif idx == 1:
+                # The listener reacting to a warning reads as watchful concern,
+                # not a clone of the speaker's determined brow.
+                expression = "concerned"
+            elif idx > 1:
+                expression = "alert"
+            else:
+                expression = "determined"
+
             positions.append(
                 {
                     "character_name": cname,
@@ -130,7 +149,7 @@ def plan_scene_choreography(
                     "z": 0.0,
                     "yaw_deg": 0.0,
                     "action_clip": clip,
-                    "expression": "angry" if (is_combat and idx == 1) else "determined",
+                    "expression": expression,
                 }
             )
 

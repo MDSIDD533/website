@@ -746,6 +746,7 @@ export const CreateProjectView: React.FC<CreateProjectViewProps> = ({
               <option value="low_resource">Low-Resource Mode (Fast CPU Raytrace)</option>
               <option value="balanced">Balanced Mode (Medium Cycles spp)</option>
               <option value="high_quality">High-Quality Mode (16 spp + Denoiser)</option>
+              <option value="cinematic">Cinematic Mode (64 spp + OpenImageDenoise — Slowest, Best Looking)</option>
             </select>
           </div>
 

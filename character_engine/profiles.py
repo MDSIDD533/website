@@ -76,6 +76,8 @@ DEFAULT_CHARACTER_ANIMATIONS = {
 DEFAULT_EXPRESSIONS = {
     "neutral": "Balanced brow, relaxed jaw",
     "determined": "Lowered inner brow, focused gaze",
+    "concerned": "Raised inner brows, watchful gaze, barely parted jaw",
+    "alert": "Lifted brows, attentive gaze, ready stance",
     "angry": "Sharp brow furrow, tense jaw",
     "joyful": "Lifted brow arch, open warm smile",
     "sad": "Upward inner brow tilt, lowered gaze",

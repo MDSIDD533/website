@@ -23,6 +23,10 @@ def apply_expression_pose(rig: dict[str, Any], expression: str, frame: int = 1) 
         "sad": (0.24, -0.24, 0.01),
         "fearful": (0.28, -0.28, 0.14),
         "surprised": (0.35, -0.35, 0.22),
+        # Inner brows raised with a barely-parted jaw: watchful concern
+        # without tipping into the wide-eyed "fearful" read.
+        "concerned": (0.22, -0.22, 0.045),
+        "alert": (0.20, -0.20, 0.035),
     }
     bl_rot, br_rot, jaw_base = presets.get(expression, presets["neutral"])
     brow_l.rotation_euler[1] = bl_rot
@@ -95,10 +99,13 @@ def animate_character_clip(
         arm_r = [0.0, -0.08, 0.0]
         fore_l = [-0.18, 0.0, 0.0]
         fore_r = [-0.18, 0.0, 0.0]
-        leg_l = 0.0
-        leg_r = 0.0
-        shin_l = 0.0
-        shin_r = 0.0
+        # Natural split stance for standing/acting clips (locomotion, sitting,
+        # and combat branches overwrite these): one foot slightly forward so
+        # the legs never collapse into a single column in side view.
+        leg_l = -0.09
+        leg_r = 0.11
+        shin_l = 0.10
+        shin_r = 0.05
 
         if action_clip in {"walk", "group_move"}:
             freq = 2.1 * math.pi
@@ -255,11 +262,39 @@ def animate_character_clip(
         root.keyframe_insert(data_path="location", frame=f)
         root.keyframe_insert(data_path="rotation_euler", frame=f)
 
-        j["torso"].rotation_euler = (torso_pitch, 0.0, torso_yaw)
+        # Subtle, deterministic asymmetry: a whisper of pelvic/shoulder tilt
+        # (mirrored by screen side) keeps standing poses from reading as rigid
+        # mannequins, while remaining far below anything that changes blocking.
+        stance_side = 1.0 if bx >= 0.0 else -1.0
+        weight_shift = 0.018 * stance_side + 0.006 * math.sin(t * 0.7 + bx)
+        if j.get("pelvis") is not None:
+            j["pelvis"].rotation_euler = (0.0, -weight_shift * 0.7, 0.0)
+            j["pelvis"].keyframe_insert(data_path="rotation_euler", frame=f)
+
+        j["torso"].rotation_euler = (torso_pitch, weight_shift, torso_yaw)
         j["torso"].keyframe_insert(data_path="rotation_euler", frame=f)
 
-        j["head"].rotation_euler = (head_pitch, 0.0, head_yaw)
+        j["head"].rotation_euler = (head_pitch, -weight_shift * 0.55, head_yaw)
         j["head"].keyframe_insert(data_path="rotation_euler", frame=f)
+
+        # Secondary motion: cape lag/sway and living (non-frozen) wrists.
+        cape = j.get("cape")
+        if cape is not None:
+            cape.rotation_euler = (
+                0.045 + 0.035 * math.sin(t * 1.7 + bx * 1.3) + abs(torso_pitch) * 0.35,
+                0.0,
+                0.020 * math.sin(t * 1.15 + by),
+            )
+            cape.keyframe_insert(data_path="rotation_euler", frame=f)
+        for hand_key, phase in (("hand_l", 0.0), ("hand_r", 1.7)):
+            hand = j.get(hand_key)
+            if hand is not None:
+                hand.rotation_euler = (
+                    -0.14 + 0.035 * math.sin(t * 2.0 + phase),
+                    0.0,
+                    0.05 * math.sin(t * 1.3 + phase),
+                )
+                hand.keyframe_insert(data_path="rotation_euler", frame=f)
 
         j["upper_arm_l"].rotation_euler = tuple(arm_l)
         j["upper_arm_r"].rotation_euler = tuple(arm_r)
