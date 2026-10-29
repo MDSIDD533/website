@@ -21,6 +21,23 @@ router = APIRouter(tags=["library_and_media"])
 
 SAFE_MEDIA_EXTENSIONS = {".mp4", ".png", ".jpg", ".jpeg", ".webp", ".wav", ".srt", ".vtt", ".json"}
 
+_FALSY_DOWNLOAD_VALUES = {"0", "false", "no", "off", "n", "f"}
+
+
+def _wants_download(value: str | None) -> bool:
+    """Interpret the ``download`` query parameter tolerantly.
+
+    The parameter was historically declared as ``int``, so common boolean
+    spellings such as ``?download=true`` — and even a bare ``?download``
+    flag — were rejected with HTTP 422 instead of downloading the MP4.
+    Accept every common spelling: ``1/true/yes/on`` (and a present-but-empty
+    flag) mean "download"; ``0/false/no/off`` or an absent parameter mean
+    "stream inline" (used by the in-page <video> player).
+    """
+    if value is None:
+        return False
+    return value.strip().lower() not in _FALSY_DOWNLOAD_VALUES
+
 
 @router.get("/api/library")
 def api_list_videos(search: str = "", sort_by: str = "newest") -> dict[str, Any]:
@@ -101,8 +118,8 @@ def api_list_videos(search: str = "", sort_by: str = "newest") -> dict[str, Any]
     return {"videos": videos}
 
 
-@router.get("/api/media/project/{project_id}/{subpath:path}")
-def api_serve_project_media(project_id: str, subpath: str, download: int = 0) -> FileResponse:
+@router.api_route("/api/media/project/{project_id}/{subpath:path}", methods=["GET", "HEAD"])
+def api_serve_project_media(project_id: str, subpath: str, download: str | None = None) -> FileResponse:
     try:
         validate_identifier(project_id, "project_id")
         get_project(project_id, include_details=False)
@@ -112,10 +129,11 @@ def api_serve_project_media(project_id: str, subpath: str, download: int = 0) ->
             raise SecurityViolationError("Access to non-media file type denied.")
         if not target.is_file():
             raise HTTPException(status_code=404, detail="Media file not found.")
-        disposition = "attachment" if download else "inline"
+        as_attachment = _wants_download(download)
+        disposition = "attachment" if as_attachment else "inline"
         return FileResponse(
             target,
-            filename=target.name if download else None,
+            filename=target.name if as_attachment else None,
             content_disposition_type=disposition,
         )
     except KeyError as exc:
