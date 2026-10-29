@@ -67,12 +67,12 @@ python3.11 -m venv .venv
 .venv/bin/python scripts/setup_headless_bpy.py
 ```
 
-### 2. Build Frontend & Start Studio (Single-Port Mode on `:8000`)
+### 2. Build Frontend & Start Studio (Local-Only Binding on `:8000`)
 ```bash
 ./scripts/build_prod.sh
-PYTHONPATH=. .venv/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000
+PYTHONPATH=. .venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
-Open **`http://localhost:8000`** in your browser.
+Open **`http://localhost:8000`** in your browser. *(Bind to `127.0.0.1` on personal machines for local-only security; use `--host 0.0.0.0` only inside isolated container preview environments.)*
 
 ### 3. Development Mode (Hot-Reload Frontend `:5173` + API `:8000`)
 ```bash

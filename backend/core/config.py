@@ -29,7 +29,7 @@ def _resolve_dir(raw: str, default_rel: str) -> Path:
 class StudioSettings:
     app_name: str = "SIDD AI VIDEO STUDIO"
     version: str = "1.0.0"
-    host: str = field(default_factory=lambda: os.getenv("SIDD_HOST", "0.0.0.0"))
+    host: str = field(default_factory=lambda: os.getenv("SIDD_HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: int(os.getenv("SIDD_PORT", "8000")))
     workspace_dir: Path = field(
         default_factory=lambda: _resolve_dir(os.getenv("SIDD_WORKSPACE_DIR", ""), "workspace_data")

@@ -61,6 +61,8 @@ ROMAN_URDU_LEXICON: dict[str, str] = {
     "rahi": "رہی",
     "rahe": "رہے",
     "achanak": "اچانک",
+    "paas": "پاس",
+    "qareeb": "قریب",
     "aane": "آنے",
     "aana": "آنا",
     "aata": "آتا",

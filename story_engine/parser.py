@@ -99,7 +99,7 @@ ACTION_KEYWORDS: dict[str, tuple[str, ...]] = {
     "turn": ("turn", "turns", "turning"),
     "look_at": ("look", "looks", "gaze", "gazing", "dekho", "dekha", "دیکھو"),
     "interact_prop": ("draw", "drawing", "holding", "raises", "lifts", "scroll", "torch", "darwaza band", "band kar"),
-    "gesture": ("gesture", "points", "waves", "signals", "mukalma", "dialogue", "conversation", "مکالمہ"),
+    "gesture": ("gesture", "points", "waves", "signals", "mukalma", "baat karte", "baat cheet", "dialogue", "conversation", "مکالمہ"),
 }
 
 EMOTION_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -418,9 +418,9 @@ def analyze_script(
                     if cname not in scene_speakers:
                         scene_speakers.append(cname)
 
-        # Ensure combat or explicit two-person dialogue ('dono', 'mukalma') brings at least 2 characters into the 3D scene
+        # Ensure combat or explicit two-person dialogue ('dono', 'mukalma', 'baat karte') brings at least 2 characters into the 3D scene
         if len(characters_map) >= 2 and any(
-            w in joined_low for w in ("dono", "mukalma", "larai", "talwar", "combat", "clash", "duel", "مکالمہ", "لڑائی")
+            w in joined_low for w in ("dono", "mukalma", "baat karte", "baat cheet", "larai", "talwar", "combat", "clash", "duel", "مکالمہ", "لڑائی")
         ):
             for cinfo in list(characters_map.values())[:2]:
                 if cinfo["name"] not in scene_speakers:
@@ -430,10 +430,10 @@ def analyze_script(
         if "cinematic_combat" in actions and "sword" not in props:
             props.append("sword")
 
-        # If narrative prose explicitly states a dialogue ('mukalma' / 'conversation') occurs without colon lines,
+        # If narrative prose explicitly states a dialogue ('mukalma' / 'baat karte' / 'conversation') occurs without colon lines,
         # synthesize a brief contextual exchange between the two present characters so jaw lip-sync & voices play.
         if not scene_dialogue and len(scene_speakers) >= 2 and any(
-            w in joined_low for w in ("mukalma", "baat cheet", "dialogue", "confront", "مکالمہ")
+            w in joined_low for w in ("mukalma", "baat karte", "baat hoti", "baat cheet", "dialogue", "confront", "مکالمہ")
         ):
             c1, c2 = scene_speakers[0], scene_speakers[1]
             if effective_lang == "roman_ur":
