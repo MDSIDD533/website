@@ -20,7 +20,7 @@ FROM python:3.11-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PORT=10000 \
+    PORT=7860 \
     SIDD_HOST=0.0.0.0 \
     SIDD_WORKSPACE_DIR=/tmp/sidd-workspace \
     SIDD_MODELS_DIR=/tmp/sidd-models \
@@ -63,7 +63,7 @@ RUN pip install --upgrade pip \
 COPY . .
 COPY --from=frontend-build /src/frontend/dist ./frontend/dist
 
-EXPOSE 10000
+EXPOSE 7860
 
-# Render injects PORT (default 10000); keep this in shell form so it expands.
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-10000}"]
+# Hugging Face Spaces expects the app on port 7860 by default; PORT can override it.
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-7860}"]
