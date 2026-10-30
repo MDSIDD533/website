@@ -28,7 +28,7 @@ import subprocess
 import time
 from dataclasses import asdict, dataclass, fields, is_dataclass, replace
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Mapping, Sequence
 
 from app.motion_graphics.builder import (
     HYPERFRAMES_VERSION,
@@ -46,6 +46,7 @@ from app.motion_graphics.builder import (
     quote_request_from_scene,
     title_request_from_scene,
 )
+from app.motion_graphics.auto_mapper import AutoSequencePlan, plan_auto_sequence
 from app.script_parser import parse_script
 from backend.core.config import REPO_ROOT
 
@@ -246,6 +247,25 @@ def build_motion_graphics_project(
     )
     result = spec.build_function(request, output_dir, overwrite=True)
     return result, request, scenes
+
+
+def plan_auto_motion_graphics(
+    script_text: str,
+    *,
+    brand_label: str = "SIDD STUDIO",
+) -> AutoSequencePlan:
+    """Plan a deterministic multi-clip sequence from a complete script."""
+
+    return plan_auto_sequence(script_text, brand_label=brand_label)
+
+
+def _write_json(path: Path, payload: Any) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(_json_safe(payload), indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return path
 
 
 def hyperframes_command() -> list[str]:
@@ -553,3 +573,447 @@ def verify_mp4(path: str | Path) -> dict[str, Any]:
 
     result["error"] = "Neither PyAV nor ffprobe is available for MP4 verification"
     return result
+
+
+def ffmpeg_command() -> str:
+    """Resolve a local FFmpeg executable for sequence concatenation."""
+
+    explicit = os.getenv("SIDD_FFMPEG_PATH", "").strip()
+    if explicit:
+        candidate = Path(explicit).expanduser()
+        if candidate.is_file():
+            return str(candidate)
+        discovered = shutil.which(explicit)
+        if discovered:
+            return discovered
+        raise RuntimeError(f"Configured FFmpeg executable not found: {explicit}")
+
+    hf_bin_dir = os.getenv("SIDD_HF_BIN_DIR", "").strip()
+    if hf_bin_dir:
+        candidate = Path(hf_bin_dir).expanduser() / "ffmpeg"
+        if candidate.is_file():
+            return str(candidate)
+
+    discovered = shutil.which("ffmpeg")
+    if discovered:
+        return discovered
+
+    try:
+        import imageio_ffmpeg  # type: ignore
+
+        candidate = Path(imageio_ffmpeg.get_ffmpeg_exe()).expanduser()
+        if candidate.is_file():
+            return str(candidate)
+    except Exception:
+        pass
+
+    raise RuntimeError(
+        "FFmpeg not found. Install it locally or set SIDD_FFMPEG_PATH / "
+        "SIDD_HF_BIN_DIR."
+    )
+
+
+def _run_ffmpeg_once(
+    command: list[str],
+    *,
+    on_log: LogCallback | None = None,
+    on_process: ProcessCallback | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> dict[str, Any]:
+    started = time.time()
+    proc = subprocess.Popen(
+        command,
+        cwd=str(REPO_ROOT),
+        env=hyperframes_environment(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    )
+    if on_process:
+        on_process(proc)
+
+    tail: list[str] = []
+    try:
+        assert proc.stdout is not None
+        for raw_line in proc.stdout:
+            if is_cancelled and is_cancelled():
+                _terminate_process(proc)
+                raise InterruptedError("FFmpeg sequence concatenation cancelled.")
+            line = raw_line.strip()
+            if line:
+                tail.append(line)
+                tail = tail[-80:]
+        return_code = proc.wait(timeout=30)
+    finally:
+        if on_process:
+            on_process(None)
+
+    if is_cancelled and is_cancelled():
+        raise InterruptedError("FFmpeg sequence concatenation cancelled.")
+    if on_log and tail:
+        on_log(tail[-1][:500])
+    return {
+        "return_code": return_code,
+        "elapsed_sec": round(time.time() - started, 3),
+        "log_tail": tail[-30:],
+    }
+
+
+def concat_mp4_files(
+    input_paths: Sequence[str | Path],
+    output_path: str | Path,
+    *,
+    fps: int = 30,
+    on_log: LogCallback | None = None,
+    on_process: ProcessCallback | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> dict[str, Any]:
+    """Concatenate same-format MP4 clips and verify the combined result.
+
+    Stream copy is attempted first.  If that output cannot be verified, a
+    deterministic H.264 re-encode at the requested FPS is used instead.
+    """
+
+    inputs = [Path(path).resolve() for path in input_paths]
+    if not inputs:
+        raise ValueError("at least one MP4 is required for concatenation")
+    missing = [str(path) for path in inputs if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f"MP4 clip(s) missing for concatenation: {missing}")
+
+    output = Path(output_path).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    list_path = output.with_suffix(".concat.txt")
+    list_path.write_text(
+        "\n".join(
+            "file '" + str(path).replace("'", "'\\''") + "'" for path in inputs
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    ffmpeg = ffmpeg_command()
+    attempts: list[dict[str, Any]] = []
+    candidates: list[tuple[str, Path, list[str]]] = [
+        (
+            "stream_copy",
+            output.with_name(f"{output.stem}.copy.mp4"),
+            [
+                ffmpeg,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_path),
+                "-c",
+                "copy",
+                "-movflags",
+                "+faststart",
+            ],
+        ),
+        (
+            "reencode_h264",
+            output.with_name(f"{output.stem}.reencode.mp4"),
+            [
+                ffmpeg,
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(list_path),
+                "-vf",
+                f"fps={int(fps)},format=yuv420p",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "18",
+                "-an",
+                "-movflags",
+                "+faststart",
+            ],
+        ),
+    ]
+
+    for method, candidate, base_command in candidates:
+        if candidate.exists():
+            candidate.unlink()
+        command = [*base_command, str(candidate)]
+        run = _run_ffmpeg_once(
+            command,
+            on_log=on_log,
+            on_process=on_process,
+            is_cancelled=is_cancelled,
+        )
+        attempt: dict[str, Any] = {"method": method, **run}
+        verification: dict[str, Any] | None = None
+        if run["return_code"] == 0 and candidate.is_file():
+            verification = verify_mp4(candidate)
+            attempt["verification"] = verification
+        attempts.append(attempt)
+
+        if verification and verification.get("verified"):
+            candidate.replace(output)
+            return {
+                "output_path": str(output),
+                "concat_list_path": str(list_path),
+                "method": method,
+                "verification": verification,
+                "attempts": attempts,
+            }
+
+        if candidate.exists():
+            candidate.unlink()
+        if on_log:
+            on_log(
+                f"FFmpeg {method} concat did not produce a verified MP4; "
+                "trying the next deterministic method."
+            )
+
+    details = json.dumps(_json_safe(attempts), ensure_ascii=False)[-3000:]
+    raise RuntimeError(f"Unable to create a verified combined MP4: {details}")
+
+
+def execute_auto_motion_graphics_sequence(
+    *,
+    script_text: str,
+    output_root: str | Path,
+    mode: str = "render",
+    fps: int = 30,
+    quality: str = "standard",
+    brand_label: str = "SIDD STUDIO",
+    on_progress: ProgressCallback | None = None,
+    on_log: LogCallback | None = None,
+    on_process: ProcessCallback | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> dict[str, Any]:
+    """Plan, build, render, verify, and concatenate an automatic sequence."""
+
+    if mode not in {"build_only", "render"}:
+        raise ValueError("auto sequence mode must be 'build_only' or 'render'")
+
+    started = time.time()
+    root = Path(output_root).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+
+    plan = plan_auto_sequence(script_text, brand_label=brand_label)
+    plan_path = _write_json(root / "auto-plan.json", plan.to_dict())
+    parsed_scenes_path = _write_json(
+        root / "parsed-scenes.json", list(plan.scenes)
+    )
+    if on_progress:
+        on_progress(
+            2.0,
+            f"Auto-mapper planned {len(plan.clips)} clip(s) "
+            f"({plan.total_duration_sec:.1f}s planned)",
+        )
+    if on_log:
+        on_log(
+            "Auto-mapper plan: "
+            + ", ".join(
+                f"{clip.clip_id}={clip.template}" for clip in plan.clips
+            )
+        )
+
+    built_items: list[tuple[Any, BuiltProject, dict[str, Any], Path]] = []
+    clip_results: list[dict[str, Any]] = []
+
+    for index, clip in enumerate(plan.clips):
+        if is_cancelled and is_cancelled():
+            raise InterruptedError("Auto sequence cancelled during project build.")
+        clip_root = root / "clips" / f"{clip.clip_id}-{clip.template}"
+        project_dir = clip_root / "project"
+        if on_progress:
+            on_progress(
+                5.0 + (index / max(1, len(plan.clips))) * 10.0,
+                f"Building {clip.clip_id} ({clip.template})",
+            )
+        built, _request_obj, _scenes = build_motion_graphics_project(
+            clip.template,
+            clip.request,
+            script_text="",
+            output_dir=project_dir,
+        )
+        result: dict[str, Any] = {
+            **clip.to_dict(),
+            "project_dir": str(built.output_dir),
+            "index_html": str(built.index_path),
+            "variables_json": str(built.variables_path),
+            "build_manifest": str(
+                built.output_dir / "motion-graphics-build.json"
+            ),
+            "built_files": list(built.files),
+        }
+        built_items.append((clip, built, result, clip_root))
+        clip_results.append(result)
+        if on_log:
+            on_log(
+                f"Built {clip.clip_id} ({clip.template}) with "
+                f"{len(built.files)} files at {built.output_dir}"
+            )
+
+    result_payload: dict[str, Any] = {
+        "status": "built" if mode == "build_only" else "rendering",
+        "mode": mode,
+        "fps": int(fps),
+        "quality": quality,
+        "output_root": str(root),
+        "auto_plan_json": str(plan_path),
+        "parsed_scenes_json": str(parsed_scenes_path),
+        "plan": plan.to_dict(),
+        "clips": clip_results,
+        "combined_video": None,
+        "verification": None,
+    }
+
+    if mode == "build_only":
+        result_payload["elapsed_sec"] = round(time.time() - started, 3)
+        sequence_result_path = _write_json(
+            root / "sequence-result.json", result_payload
+        )
+        result_payload["sequence_result_json"] = str(sequence_result_path)
+        _write_json(sequence_result_path, result_payload)
+        if on_progress:
+            on_progress(100.0, "Auto sequence projects built")
+        return _json_safe(result_payload)
+
+    rendered_paths: list[Path] = []
+    render_span_start = 15.0
+    render_span = 73.0
+    per_clip_span = render_span / max(1, len(built_items))
+
+    for index, (clip, built, result, clip_root) in enumerate(built_items):
+        if is_cancelled and is_cancelled():
+            raise InterruptedError("Auto sequence cancelled before clip render.")
+        output_mp4 = (
+            built.output_dir
+            / "renders"
+            / f"{clip.clip_id}-{clip.template}.mp4"
+        )
+        clip_base = render_span_start + index * per_clip_span
+
+        def _clip_progress(
+            hf_pct: float,
+            stage: str,
+            *,
+            base: float = clip_base,
+            current_clip: Any = clip,
+        ) -> None:
+            if on_progress:
+                mapped = base + (max(0.0, min(100.0, hf_pct)) / 100.0) * per_clip_span
+                on_progress(mapped, f"{current_clip.clip_id}: {stage}")
+
+        def _clip_log(line: str, *, current_clip: Any = clip) -> None:
+            if on_log:
+                on_log(f"{current_clip.clip_id}: {line}")
+
+        render_result = render_motion_graphics_project(
+            project_dir=built.output_dir,
+            variables=built.variables,
+            output_path=output_mp4,
+            fps=int(fps),
+            quality=str(quality),
+            on_progress=_clip_progress,
+            on_log=_clip_log,
+            on_process=on_process,
+            is_cancelled=is_cancelled,
+        )
+        render_log_path = clip_root / "render-log.txt"
+        render_log_path.parent.mkdir(parents=True, exist_ok=True)
+        render_log_path.write_text(
+            "\n".join(
+                str(line) for line in render_result.get("log_tail", [])
+            ),
+            encoding="utf-8",
+        )
+
+        if on_progress:
+            on_progress(
+                min(90.0, clip_base + per_clip_span),
+                f"Verifying {clip.clip_id} MP4",
+            )
+        verification = verify_mp4(output_mp4)
+        verification_path = _write_json(
+            clip_root / "verification.json", verification
+        )
+        result.update(
+            {
+                "video": str(output_mp4),
+                "render_log": str(render_log_path),
+                "render_elapsed_sec": render_result.get("elapsed_sec"),
+                "verification": verification,
+                "verification_json": str(verification_path),
+            }
+        )
+        if not verification.get("verified"):
+            raise RuntimeError(
+                f"{clip.clip_id} MP4 failed verification: "
+                + str(verification.get("error") or verification)
+            )
+        rendered_paths.append(output_mp4)
+        if on_log:
+            on_log(
+                f"Verified {clip.clip_id}: {verification.get('width')}x"
+                f"{verification.get('height')} @ {verification.get('fps')}fps, "
+                f"{verification.get('duration_sec')}s, "
+                f"{verification.get('decoded_frames')} frames"
+            )
+
+    if on_progress:
+        on_progress(92.0, "Concatenating verified clips")
+    combined_path = root / "combined.mp4"
+    concat_result = concat_mp4_files(
+        rendered_paths,
+        combined_path,
+        fps=int(fps),
+        on_log=on_log,
+        on_process=on_process,
+        is_cancelled=is_cancelled,
+    )
+
+    if on_progress:
+        on_progress(96.0, "Verifying combined MP4")
+    combined_verification = verify_mp4(combined_path)
+    combined_verification_path = _write_json(
+        root / "verification.json", combined_verification
+    )
+    if not combined_verification.get("verified"):
+        raise RuntimeError(
+            "Combined MP4 failed final verification: "
+            + str(
+                combined_verification.get("error") or combined_verification
+            )
+        )
+
+    result_payload.update(
+        {
+            "status": "completed",
+            "combined_video": str(combined_path),
+            "concat": concat_result,
+            "verification": combined_verification,
+            "verification_json": str(combined_verification_path),
+            "elapsed_sec": round(time.time() - started, 3),
+        }
+    )
+    sequence_result_path = _write_json(
+        root / "sequence-result.json", result_payload
+    )
+    result_payload["sequence_result_json"] = str(sequence_result_path)
+    _write_json(sequence_result_path, result_payload)
+
+    if on_progress:
+        on_progress(100.0, "Auto sequence completed")
+    if on_log:
+        on_log(
+            "Combined MP4 verified: "
+            f"{combined_path} ({combined_verification.get('duration_sec')}s, "
+            f"{combined_verification.get('decoded_frames')} frames)"
+        )
+    return _json_safe(result_payload)

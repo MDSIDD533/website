@@ -60,3 +60,39 @@ def test_roman_urdu_english_mix() -> None:
     assert len(dialogue) == 1
     assert dialogue[0]["speaker"] == "Bilal"
     assert "Ready?" in dialogue[0]["line"]
+
+
+def test_aata_hai_and_dono_context_resolution() -> None:
+    scenes = parse_script(
+        "Bilal qile mein aata hai. "
+        "Zara mash'al jalati hai. "
+        "Dono baat karte hain."
+    )
+
+    assert len(scenes) == 3
+    assert scenes[0]["characters"] == ["Bilal"]
+    assert scenes[0]["actions"] == ["walk"]
+    assert scenes[1]["characters"] == ["Zara"]
+    assert scenes[1]["actions"] == ["light_torch"]
+    assert scenes[2]["characters"] == ["Bilal", "Zara"]
+    assert scenes[2]["actions"] == ["talk"]
+    # Dono uses character context only; location/time still use defaults.
+    assert scenes[2]["location"] == "fort"
+    assert scenes[2]["time_of_day"] == "day"
+
+
+def test_dono_preserves_first_mention_order() -> None:
+    scenes = parse_script(
+        "Zara qile mein aati hai. Bilal aata hai. Dono baat karte hain."
+    )
+
+    assert scenes[0]["actions"] == ["walk"]
+    assert scenes[1]["actions"] == ["walk"]
+    assert scenes[2]["characters"] == ["Zara", "Bilal"]
+
+
+def test_dono_without_two_known_characters_stays_unresolved() -> None:
+    scenes = parse_script("Dono baat karte hain.")
+
+    assert scenes[0]["characters"] == []
+    assert scenes[0]["actions"] == ["talk"]

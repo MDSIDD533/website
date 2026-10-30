@@ -23,9 +23,10 @@ Rules (see Phase 2 spec, sub-step 3.1):
   * Keyword scans (location / time / characters / actions) run on the
     narrative part of the sentence — quoted dialogue text is removed
     first so words spoken in dialogue cannot trigger false actions.
-  * Every scene is independent: if a sentence names no location or
-    time, that scene gets its own default (``fort`` / ``day``). Nothing
-    is inherited from the previous scene.
+  * Location and time are independent per scene: if a sentence names no
+    location or time, that scene gets its own default (``fort`` / ``day``).
+    The sole cross-scene exception is the pronoun ``dono`` ("both"), which
+    may resolve to the last two distinct known characters.
   * Duration: 3.0s base + 1.0s per dialogue line + 0.5s per action
     beyond the first, capped at 8.0s.
 """
@@ -57,8 +58,13 @@ _CHARACTER_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
     ("Zara", re.compile(r"\bzara\b", re.IGNORECASE)),
 ]
 
+_DONO_RE = re.compile(r"\bdono\b", re.IGNORECASE)
+
 _ACTION_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
-    ("walk", re.compile(r"\bchal\w*|\bwalk\w*", re.IGNORECASE)),
+    (
+        "walk",
+        re.compile(r"\bchal\w*|\bwalk\w*|\baat(?:a|i|e)\b", re.IGNORECASE),
+    ),
     ("run", re.compile(r"\bdaud\w*|\brun(?:s|ning)?\b", re.IGNORECASE)),
     ("light_torch", re.compile(r"mash['’]?al|\btorch\w*", re.IGNORECASE)),
     ("fight", re.compile(r"\b(?:larta|larti|larte|larna|larai|fight|fights|fighting)\b", re.IGNORECASE)),
@@ -147,6 +153,30 @@ def _ordered_unique(text: str, patterns: list[tuple[str, "re.Pattern[str]"]]) ->
     return [value for _, value in sorted(hits, key=lambda h: h[0])]
 
 
+def _resolve_dono_characters(
+    explicit: list[str], seen_characters: list[str]
+) -> list[str]:
+    """Resolve ``dono`` to the last two distinct known characters.
+
+    ``seen_characters`` is in first-mention order across earlier scenes.
+    Explicit names in the current sentence keep their sentence order when
+    both are present.  If fewer than two characters are known, only the
+    explicit current names are returned; the parser does not invent the
+    missing second person.
+    """
+
+    if len(explicit) >= 2:
+        return explicit
+
+    history = list(seen_characters)
+    for name in explicit:
+        if name not in history:
+            history.append(name)
+    if len(history) >= 2:
+        return history[-2:]
+    return explicit
+
+
 def _speaker_before(original: str, pos: int, fallback: Optional[str]) -> str:
     """Last character mentioned in ``original`` before offset ``pos``."""
     best: Optional[tuple[int, str]] = None
@@ -192,13 +222,16 @@ def _duration(actions: list[str], dialogue: list[dict]) -> float:
 def parse_script(text: str) -> list[dict]:
     """Parse a Roman Urdu / English mixed script into a list of scenes."""
     scenes: list[dict] = []
+    seen_characters: list[str] = []
     for raw in split_sentences(text or ""):
         # Keyword scans run on narrative text only (quotes removed).
         narrative = _QUOTE_RE.sub(" ", raw)
-        # No inheritance: every scene falls back to its own default.
+        # Location/time never inherit: each scene uses its own default.
         location = _first_match(narrative, _LOCATION_PATTERNS) or "fort"
         time_of_day = _first_match(narrative, _TIME_PATTERNS) or "day"
         characters = _ordered_unique(narrative, _CHARACTER_PATTERNS)
+        if _DONO_RE.search(narrative):
+            characters = _resolve_dono_characters(characters, seen_characters)
         actions = _ordered_unique(narrative, _ACTION_PATTERNS)
         dialogue = _extract_dialogue(raw, characters)
         scenes.append(
@@ -212,4 +245,7 @@ def parse_script(text: str) -> list[dict]:
                 "duration_sec": _duration(actions, dialogue),
             }
         )
+        for name in characters:
+            if name not in seen_characters:
+                seen_characters.append(name)
     return scenes
