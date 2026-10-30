@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Why the Dollar Rules — HyperFrames</title>
+    <script src="assets/lib/gsap.min.js"></script>
+    <style>
+      :root {
+        --ground: #0a0a0f;
+        --ink: #ffffff;
+        --gold: #d4af37;
+        --blue: #4a90d9;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--ground);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--ground);
+        font-family: Inter, Arial, sans-serif;
+      }
+      .scene-host {
+        position: absolute;
+        inset: 0;
+        width: 1920px;
+        height: 1080px;
+      }
+      #stage3d {
+        z-index: 0;
+      }
+      .text-host {
+        z-index: 3;
+      }
+    </style>
+  </head>
+  <body>
+    <div data-hf-id="hf-mcdv"
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="60"
+      data-width="1920"
+      data-height="1080"
+      data-motion-blur="off"
+    >
+      <div data-hf-id="hf-3ppc"
+        id="stage3d"
+        class="scene-host"
+        data-composition-id="stage3d"
+        data-composition-src="compositions/stage.html"
+        data-start="0"
+        data-duration="60"
+        data-track-index="0"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+
+      <div data-hf-id="hf-5lxm"
+        id="opening"
+        class="scene-host text-host"
+        data-composition-id="opening"
+        data-composition-src="compositions/opening.html"
+        data-start="0"
+        data-duration="5"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div data-hf-id="hf-l9h4"
+        id="hook"
+        class="scene-host text-host"
+        data-composition-id="hook"
+        data-composition-src="compositions/hook.html"
+        data-start="5"
+        data-duration="6"
+        data-track-index="2"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div data-hf-id="hf-6qh2"
+        id="unit"
+        class="scene-host text-host"
+        data-composition-id="unit"
+        data-composition-src="compositions/unit.html"
+        data-start="11"
+        data-duration="9"
+        data-track-index="3"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div data-hf-id="hf-9ytg"
+        id="exchange"
+        class="scene-host text-host"
+        data-composition-id="exchange"
+        data-composition-src="compositions/exchange.html"
+        data-start="20"
+        data-duration="9"
+        data-track-index="4"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div data-hf-id="hf-5cl1"
+        id="store"
+        class="scene-host text-host"
+        data-composition-id="store"
+        data-composition-src="compositions/store.html"
+        data-start="29"
+        data-duration="11"
+        data-track-index="5"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div data-hf-id="hf-367n"
+        id="network"
+        class="scene-host text-host"
+        data-composition-id="network"
+        data-composition-src="compositions/network.html"
+        data-start="40"
+        data-duration="9"
+        data-track-index="6"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div data-hf-id="hf-8hor"
+        id="foundation"
+        class="scene-host text-host"
+        data-composition-id="foundation"
+        data-composition-src="compositions/foundation.html"
+        data-start="49"
+        data-duration="6"
+        data-track-index="7"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+      <div data-hf-id="hf-di6c"
+        id="outro"
+        class="scene-host text-host"
+        data-composition-id="outro"
+        data-composition-src="compositions/outro.html"
+        data-start="55"
+        data-duration="5"
+        data-track-index="8"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+      ></div>
+
+      <audio data-hf-id="hf-5sqr"
+        id="score"
+        class="clip"
+        src="assets/audio/synth-score.wav"
+        data-start="0"
+        data-duration="60"
+        data-track-index="20"
+        data-volume="0.5"
+        data-fade-in="1.5"
+        data-fade-out="2.5"
+      ></audio>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

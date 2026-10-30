@@ -1,0 +1,41 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; color: #fff; font-family: Inter, Arial, sans-serif; }
+    .un-clip { position: absolute; }
+    #un-copy { left: 1130px; top: 112px; width: 680px; }
+    .un-kicker { color: #d4af37; font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; letter-spacing: 0.18em; }
+    .un-title { margin-top: 22px; font-family: Montserrat, Inter, Arial, sans-serif; font-size: 86px; font-weight: 900; line-height: 0.98; letter-spacing: -0.04em; }
+    .un-line { margin-top: 34px; font-size: 47px; line-height: 1.22; font-weight: 750; color: #eef4ff; }
+    .un-sub { margin-top: 22px; font-size: 32px; line-height: 1.35; color: #c9d7eb; }
+    .un-tag { top: 902px; width: 360px; text-align: center; }
+    #un-tag-oil { left: 250px; }
+    #un-tag-gold { left: 780px; }
+    #un-tag-copper { left: 1310px; }
+    .un-tag .anim { padding-top: 14px; border-top: 4px solid #4a90d9; }
+    .un-name { display: block; font-family: Montserrat, Inter, Arial, sans-serif; font-size: 38px; font-weight: 900; letter-spacing: 0.08em; }
+    .un-price { display: block; margin-top: 7px; color: #d4af37; font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; }
+  </style>
+  <div data-hf-id="hf-d6kh" id="root" data-composition-id="unit" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-b1u2" id="un-copy" class="un-clip clip" data-start="0" data-duration="9" data-track-index="0">
+      <div data-hf-id="hf-yi5j" class="anim">
+        <div data-hf-id="hf-6gy4" class="un-kicker">PILLAR 01</div>
+        <div data-hf-id="hf-0osq" class="un-title">UNIT OF<br data-hf-id="hf-x5px" />ACCOUNT</div>
+        <div data-hf-id="hf-03lv" class="un-line">The world prices<br data-hf-id="hf-rsrt" />in dollars.</div>
+        <div data-hf-id="hf-q9zc" class="un-sub">Major commodities share one measuring stick — so buyers everywhere need dollars before they trade.</div>
+      </div>
+    </div>
+    <div data-hf-id="hf-y2eg" id="un-tag-oil" class="un-clip un-tag clip" data-start="1.5" data-duration="7.5" data-track-index="1"><div data-hf-id="hf-hvyf" class="anim"><span data-hf-id="hf-zhfo" class="un-name">OIL</span><span data-hf-id="hf-vk9v" class="un-price">$ / BARREL</span></div></div>
+    <div data-hf-id="hf-uo92" id="un-tag-gold" class="un-clip un-tag clip" data-start="2.15" data-duration="6.85" data-track-index="2"><div data-hf-id="hf-hhne" class="anim"><span data-hf-id="hf-dt1e" class="un-name">GOLD</span><span data-hf-id="hf-4mry" class="un-price">$ / TROY OZ</span></div></div>
+    <div data-hf-id="hf-cnz9" id="un-tag-copper" class="un-clip un-tag clip" data-start="2.8" data-duration="6.2" data-track-index="3"><div data-hf-id="hf-h3cd" class="anim"><span data-hf-id="hf-wd5t" class="un-name">COPPER</span><span data-hf-id="hf-t93h" class="un-price">$ / TONNE</span></div></div>
+  </div>
+  <script>
+    const tlUnit = gsap.timeline({ paused: true });
+    gsap.set(["#un-copy .anim", ".un-tag .anim"], { opacity: 0 });
+    tlUnit.fromTo("#un-copy .anim", { opacity: 0, x: 90 }, { opacity: 1, x: 0, duration: 0.65, ease: "power4.out", immediateRender: false }, 0.2);
+    tlUnit.fromTo("#un-tag-oil .anim", { opacity: 0, y: 42 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 1.65);
+    tlUnit.fromTo("#un-tag-gold .anim", { opacity: 0, y: 42 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 2.3);
+    tlUnit.fromTo("#un-tag-copper .anim", { opacity: 0, y: 42 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 2.95);
+    tlUnit.to(["#un-copy .anim", ".un-tag .anim"], { opacity: 0, y: -18, filter: "blur(6px)", duration: 0.34, ease: "power3.in" }, 8.55);
+    window.__timelines["unit"] = tlUnit;
+  </script>
+</template>

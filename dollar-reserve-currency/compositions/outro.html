@@ -1,0 +1,28 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; color: #fff; font-family: Inter, Arial, sans-serif; }
+    .ou-clip { position: absolute; }
+    #ou-lockup { left: 210px; top: 714px; width: 1500px; text-align: center; }
+    .ou-small { color: #a9c6e8; font-family: "Space Mono", monospace; font-size: 34px; font-weight: 700; letter-spacing: 0.28em; }
+    .ou-title { margin-top: 20px; font-family: Montserrat, Inter, Arial, sans-serif; font-size: 106px; font-weight: 900; line-height: 0.98; letter-spacing: -0.035em; }
+    .ou-title .gold { color: #d4af37; }
+    #ou-sub { left: 260px; top: 930px; width: 1400px; text-align: center; }
+    #ou-sub .anim { font-size: 34px; font-weight: 650; color: #e7eef9; }
+  </style>
+  <div data-hf-id="hf-x7nm" id="root" data-composition-id="outro" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-400a" id="ou-lockup" class="ou-clip clip" data-start="0.9" data-duration="4.1" data-track-index="0">
+      <div data-hf-id="hf-yi5j" class="anim">
+        <div data-hf-id="hf-8ea1" class="ou-small">THE WORLD’S</div>
+        <div data-hf-id="hf-y5c6" class="ou-title"><span data-hf-id="hf-fi2h" class="gold">RESERVE</span> CURRENCY</div>
+      </div>
+    </div>
+    <div data-hf-id="hf-y7m3" id="ou-sub" class="ou-clip clip" data-start="1.8" data-duration="3.2" data-track-index="1"><div data-hf-id="hf-bhlr" class="anim">Priced in dollars. Paid in dollars. Saved in dollars.</div></div>
+  </div>
+  <script>
+    const tlOutro = gsap.timeline({ paused: true });
+    gsap.set(["#ou-lockup .anim", "#ou-sub .anim"], { opacity: 0 });
+    tlOutro.fromTo("#ou-lockup .anim", { opacity: 0, y: 52, scale: 0.965, filter: "blur(8px)" }, { opacity: 1, y: 0, scale: 1, filter: "blur(0px)", duration: 0.85, ease: "expo.out", immediateRender: false }, 1.05);
+    tlOutro.fromTo("#ou-sub .anim", { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out", immediateRender: false }, 1.95);
+    window.__timelines["outro"] = tlOutro;
+  </script>
+</template>

@@ -1,0 +1,44 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; color: #fff; font-family: Inter, Arial, sans-serif; }
+    .op-clip { position: absolute; }
+    #op-kicker { left: 112px; top: 76px; width: 900px; }
+    #op-kicker .anim { color: #a9c6e8; font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; letter-spacing: 0.18em; }
+    #op-title { left: 108px; top: 238px; width: 1050px; }
+    .op-line { display: block; font-family: Montserrat, Inter, Arial, sans-serif; font-weight: 900; line-height: 0.94; letter-spacing: -0.04em; }
+    #op-line-why { font-size: 96px; color: #ffffff; }
+    #op-line-dollar { font-size: 196px; color: #d4af37; }
+    #op-line-rules { font-size: 158px; color: #ffffff; }
+    #op-glyph { left: 1170px; top: 190px; width: 500px; height: 560px; text-align: center; }
+    #op-glyph .anim { color: #d4af37; font-family: Inter, Arial, sans-serif; font-size: 470px; font-weight: 900; line-height: 1; text-shadow: 0 0 54px rgba(212,175,55,0.45); }
+    #op-sub { left: 112px; top: 742px; width: 980px; }
+    #op-sub .anim { font-size: 42px; line-height: 1.25; font-weight: 650; color: #eef4ff; }
+    #op-rule { left: 112px; top: 706px; width: 420px; height: 5px; }
+    #op-rule .anim { width: 100%; height: 100%; background: #4a90d9; }
+  </style>
+  <div data-hf-id="hf-nrhd" id="root" data-composition-id="opening" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-v8iq" id="op-kicker" class="op-clip clip" data-start="0" data-duration="5" data-track-index="0"><div data-hf-id="hf-4h5z" class="anim">GLOBAL FINANCE · EXPLAINED IN 60 SECONDS</div></div>
+    <div data-hf-id="hf-3d34" id="op-title" class="op-clip clip" data-start="0" data-duration="5" data-track-index="1">
+      <span data-hf-id="hf-glrj" id="op-line-why" class="op-line">WHY THE</span>
+      <span data-hf-id="hf-5muc" id="op-line-dollar" class="op-line">DOLLAR</span>
+      <span data-hf-id="hf-edvw" id="op-line-rules" class="op-line">RULES</span>
+    </div>
+    <div data-hf-id="hf-7pfa" id="op-glyph" class="op-clip clip" data-start="0" data-duration="2.35" data-track-index="2"><div data-hf-id="hf-lda1" class="anim">$</div></div>
+    <div data-hf-id="hf-23fz" id="op-rule" class="op-clip clip" data-start="1.9" data-duration="3.1" data-track-index="3"><div data-hf-id="hf-yi5j" class="anim"></div></div>
+    <div data-hf-id="hf-90lp" id="op-sub" class="op-clip clip" data-start="2.05" data-duration="2.95" data-track-index="4"><div data-hf-id="hf-qfn1" class="anim">One currency. Three jobs.<br data-hf-id="hf-x5px" />One self-reinforcing loop.</div></div>
+  </div>
+  <script>
+    const tlOpening = gsap.timeline({ paused: true });
+    gsap.set(["#op-kicker .anim", ".op-line", "#op-sub .anim"], { opacity: 0 });
+    gsap.set("#op-rule .anim", { scaleX: 0, transformOrigin: "left center" });
+    tlOpening.fromTo("#op-kicker .anim", { opacity: 0, y: -18 }, { opacity: 1, y: 0, duration: 0.45, ease: "power3.out", immediateRender: false }, 0.12);
+    tlOpening.fromTo("#op-line-why", { opacity: 0, x: -90 }, { opacity: 1, x: 0, duration: 0.48, ease: "power4.out", immediateRender: false }, 0.18);
+    tlOpening.fromTo("#op-line-dollar", { opacity: 0, x: -150, scale: 1.08 }, { opacity: 1, x: 0, scale: 1, duration: 0.58, ease: "expo.out", immediateRender: false }, 0.38);
+    tlOpening.fromTo("#op-line-rules", { opacity: 0, x: -110 }, { opacity: 1, x: 0, duration: 0.5, ease: "power4.out", immediateRender: false }, 0.62);
+    tlOpening.fromTo("#op-glyph .anim", { opacity: 0.96, scale: 0.82, rotationY: 0, filter: "blur(0px)" }, { opacity: 0, scale: 1.28, rotationY: 78, filter: "blur(16px)", duration: 0.92, ease: "power3.inOut", immediateRender: false }, 1.08);
+    tlOpening.to("#op-rule .anim", { scaleX: 1, duration: 0.55, ease: "power3.out" }, 1.95);
+    tlOpening.fromTo("#op-sub .anim", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out", immediateRender: false }, 2.15);
+    tlOpening.to(["#op-kicker .anim", ".op-line", "#op-sub .anim", "#op-rule .anim"], { opacity: 0, y: -18, filter: "blur(7px)", duration: 0.34, ease: "power3.in" }, 4.56);
+    window.__timelines["opening"] = tlOpening;
+  </script>
+</template>

@@ -1,0 +1,59 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; color: #fff; font-family: Inter, Arial, sans-serif; }
+    .hk-clip { position: absolute; }
+    #hk-kicker { left: 112px; top: 82px; width: 900px; }
+    #hk-kicker .anim { color: #a9c6e8; font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; letter-spacing: 0.18em; }
+    .hk-row { left: 112px; width: 1240px; }
+    #hk-row-gdp { top: 176px; }
+    #hk-row-fx { top: 452px; }
+    .hk-head { display: flex; align-items: baseline; gap: 34px; }
+    .hk-num { font-family: Inter, Arial, sans-serif; font-size: 172px; font-weight: 900; line-height: 0.95; letter-spacing: -0.055em; font-variant-numeric: tabular-nums; }
+    #hk-num-gdp { color: #8fc1f2; }
+    #hk-num-fx { color: #d4af37; }
+    .hk-label { max-width: 620px; font-size: 39px; line-height: 1.18; font-weight: 700; color: #f4f7fb; }
+    .hk-track { margin-top: 24px; width: 1120px; height: 18px; background: rgba(255,255,255,0.13); }
+    .hk-fill { height: 100%; }
+    #hk-fill-gdp { width: 280px; background: #4a90d9; }
+    #hk-fill-fx { width: 997px; background: #d4af37; }
+    #hk-take { left: 112px; top: 788px; width: 1420px; }
+    #hk-take .anim { font-family: Montserrat, Inter, Arial, sans-serif; font-size: 58px; font-weight: 850; line-height: 1.14; letter-spacing: -0.025em; }
+    #hk-source { left: 112px; top: 996px; width: 1500px; }
+    #hk-source .anim { color: #b8c4d6; font-family: "Space Mono", monospace; font-size: 28px; }
+  </style>
+  <div data-hf-id="hf-ktv8" id="root" data-composition-id="hook" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-nc2z" id="hk-kicker" class="hk-clip clip" data-start="0" data-duration="6" data-track-index="0"><div data-hf-id="hf-07yb" class="anim">THE PARADOX</div></div>
+    <div data-hf-id="hf-5bzn" id="hk-row-gdp" class="hk-clip hk-row clip" data-start="0.15" data-duration="5.85" data-track-index="1">
+      <div data-hf-id="hf-yi5j" class="anim">
+        <div data-hf-id="hf-ogle" class="hk-head"><div data-hf-id="hf-71lh" id="hk-num-gdp" class="hk-num">0%</div><div data-hf-id="hf-7n1b" class="hk-label">US share of<br data-hf-id="hf-x5px" />world GDP</div></div>
+        <div data-hf-id="hf-pcrd" class="hk-track"><div data-hf-id="hf-ljm8" id="hk-fill-gdp" class="hk-fill"></div></div>
+      </div>
+    </div>
+    <div data-hf-id="hf-bbjv" id="hk-row-fx" class="hk-clip hk-row clip" data-start="1.45" data-duration="4.55" data-track-index="2">
+      <div data-hf-id="hf-hvyf" class="anim">
+        <div data-hf-id="hf-p84m" class="hk-head"><div data-hf-id="hf-7sp6" id="hk-num-fx" class="hk-num">0%</div><div data-hf-id="hf-n6bc" class="hk-label">of FX trades involve<br data-hf-id="hf-rsrt" />the US dollar</div></div>
+        <div data-hf-id="hf-967h" class="hk-track"><div data-hf-id="hf-9gr3" id="hk-fill-fx" class="hk-fill"></div></div>
+      </div>
+    </div>
+    <div data-hf-id="hf-b348" id="hk-take" class="hk-clip clip" data-start="3.0" data-duration="3.0" data-track-index="3"><div data-hf-id="hf-63f4" class="anim">A quarter of output.<br data-hf-id="hf-szow" />Nearly all of the plumbing.</div></div>
+    <div data-hf-id="hf-qr9f" id="hk-source" class="hk-clip clip" data-start="0" data-duration="6" data-track-index="4"><div data-hf-id="hf-hq41" class="anim">Sources: IMF World Economic Outlook · BIS Triennial Central Bank Survey (FX turnover)</div></div>
+  </div>
+  <script>
+    const tlHook = gsap.timeline({ paused: true });
+    const hkGdp = { v: 0 };
+    const hkFx = { v: 0 };
+    gsap.set(["#hk-kicker .anim", "#hk-row-gdp .anim", "#hk-row-fx .anim", "#hk-take .anim", "#hk-source .anim"], { opacity: 0 });
+    gsap.set(["#hk-fill-gdp", "#hk-fill-fx"], { scaleX: 0, transformOrigin: "left center" });
+    tlHook.fromTo("#hk-kicker .anim", { opacity: 0, y: -16 }, { opacity: 1, y: 0, duration: 0.4, ease: "power3.out", immediateRender: false }, 0.08);
+    tlHook.fromTo("#hk-row-gdp .anim", { opacity: 0, x: -70 }, { opacity: 1, x: 0, duration: 0.55, ease: "power4.out", immediateRender: false }, 0.25);
+    tlHook.to(hkGdp, { v: 25, duration: 1.15, ease: "power3.out", onUpdate: () => { document.getElementById("hk-num-gdp").textContent = Math.round(hkGdp.v) + "%"; } }, 0.45);
+    tlHook.to("#hk-fill-gdp", { scaleX: 1, duration: 1.15, ease: "power3.out" }, 0.45);
+    tlHook.fromTo("#hk-row-fx .anim", { opacity: 0, x: -70 }, { opacity: 1, x: 0, duration: 0.55, ease: "power4.out", immediateRender: false }, 1.55);
+    tlHook.to(hkFx, { v: 89, duration: 1.35, ease: "power3.out", onUpdate: () => { document.getElementById("hk-num-fx").textContent = Math.round(hkFx.v) + "%"; } }, 1.75);
+    tlHook.to("#hk-fill-fx", { scaleX: 1, duration: 1.35, ease: "power3.out" }, 1.75);
+    tlHook.fromTo("#hk-take .anim", { opacity: 0, y: 42 }, { opacity: 1, y: 0, duration: 0.55, ease: "power3.out", immediateRender: false }, 3.12);
+    tlHook.fromTo("#hk-source .anim", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.out", immediateRender: false }, 1.95);
+    tlHook.to(["#hk-kicker .anim", "#hk-row-gdp .anim", "#hk-row-fx .anim", "#hk-take .anim", "#hk-source .anim"], { opacity: 0, y: -16, filter: "blur(6px)", duration: 0.32, ease: "power3.in" }, 5.6);
+    window.__timelines["hook"] = tlHook;
+  </script>
+</template>
