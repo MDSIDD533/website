@@ -235,6 +235,7 @@ export interface MotionAutoPreview {
   mode: MotionJobMode;
   fps: number;
   quality: MotionJobQuality;
+  include_dialogue_audio?: boolean;
   scenes: MotionParsedScene[];
   scene_count: number;
   clips: MotionAutoClipPlan[];

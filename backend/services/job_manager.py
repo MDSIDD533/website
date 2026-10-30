@@ -576,6 +576,7 @@ class JobManager:
 
         mode = str(payload.get("mode") or "render")
         script_text = str(payload.get("script_text") or "")
+        include_dialogue_audio = bool(payload.get("include_dialogue_audio"))
         if not script_text.strip():
             raise ValueError("auto motion-graphics script_text must not be empty")
 
@@ -589,7 +590,10 @@ class JobManager:
             current_stage="Planning auto motion-graphics sequence",
             progress_pct=2.0,
             progress_measurable=True,
-            log_line=f"Preparing auto-mapper sequence in {mode} mode.",
+            log_line=(
+                f"Preparing auto-mapper sequence in {mode} mode"
+                f"{' with local dialogue audio' if include_dialogue_audio else ''}."
+            ),
         )
 
         def _on_progress(pct: float, stage: str) -> None:
@@ -618,6 +622,7 @@ class JobManager:
             fps=int(payload.get("fps") or 60),
             quality=str(payload.get("quality") or "standard"),
             brand_label=str(payload.get("brand_label") or "SIDD STUDIO"),
+            include_dialogue_audio=include_dialogue_audio,
             on_progress=_on_progress,
             on_log=_on_log,
             on_process=_on_process,
@@ -633,6 +638,7 @@ class JobManager:
             "sequence_result_json": result.get("sequence_result_json"),
             "template": "auto",
             "mode": mode,
+            "include_dialogue_audio": include_dialogue_audio,
             "scene_count": int(plan.get("scene_count") or len(plan.get("scenes") or [])),
             "clip_count": int(plan.get("clip_count") or len(clips)),
             "auto_plan": plan,
@@ -656,6 +662,15 @@ class JobManager:
                 if isinstance(value, str) and value:
                     outputs[f"{prefix}_{artifact_name}"] = value
 
+            for line_index, line in enumerate(
+                clip.get("dialogue_audio_lines") or [], start=1
+            ):
+                if not isinstance(line, dict):
+                    continue
+                wav_path = line.get("wav_path")
+                if isinstance(wav_path, str) and wav_path:
+                    outputs[f"{prefix}_line_{line_index:02d}_wav"] = wav_path
+
         if mode == "build_only":
             if result.get("status") != "built":
                 raise RuntimeError(f"Auto sequence build did not complete: {result}")
@@ -677,17 +692,37 @@ class JobManager:
         if result.get("status") != "completed" or not result.get("combined_video"):
             raise RuntimeError(f"Auto sequence render did not complete: {result}")
 
-        verification = result.get("verification") or {}
+        silent_verification = result.get("verification") or {}
+        verification_with_audio = result.get("verification_with_audio") or {}
+        verification = verification_with_audio or silent_verification
+        dialogue_audio = result.get("dialogue_audio")
+        if not isinstance(dialogue_audio, dict):
+            dialogue_audio = None
         concat = result.get("concat") or {}
         outputs.update(
             {
                 "video": result.get("combined_video"),
                 "combined_video": result.get("combined_video"),
+                "combined_video_silent": result.get("combined_video_silent"),
                 "verification": verification,
                 "verification_json": result.get("verification_json"),
+                "verification_with_audio": verification_with_audio or None,
+                "verification_with_audio_json": result.get(
+                    "verification_with_audio_json"
+                ),
+                "dialogue_audio": dialogue_audio,
+                "dialogue_audio_wav": result.get("dialogue_audio_wav"),
+                "dialogue_audio_json": result.get("dialogue_audio_json"),
+                "has_dialogue_audio": bool(dialogue_audio),
                 "concat_method": concat.get("method"),
             }
         )
+        audio_note = ""
+        if dialogue_audio:
+            audio_note = (
+                f", {int(dialogue_audio.get('line_count') or 0)} local dialogue "
+                "line(s) muxed as AAC audio"
+            )
         self._update_job_state(
             job_id,
             status="completed",
@@ -701,7 +736,7 @@ class JobManager:
                 f"({outputs['clip_count']} clips, {verification.get('width')}×"
                 f"{verification.get('height')} @ {verification.get('fps')}fps, "
                 f"{verification.get('duration_sec')}s, "
-                f"{verification.get('decoded_frames')} decoded frames) in "
+                f"{verification.get('decoded_frames')} decoded frames{audio_note}) in "
                 f"{round(time.time() - t_start, 2)}s."
             ),
         )
