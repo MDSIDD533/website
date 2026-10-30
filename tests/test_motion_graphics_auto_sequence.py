@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import subprocess
+import wave
 from pathlib import Path
+
+import numpy as np
 from typing import Any
 
 from backend.services import motion_graphics_service as service
@@ -50,6 +53,57 @@ def test_auto_sequence_build_only_creates_four_projects(tmp_path: Path) -> None:
         assert Path(clip["index_html"]).is_file()
         assert Path(clip["variables_json"]).is_file()
         assert Path(clip["build_manifest"]).is_file()
+
+
+def test_dialogue_audio_timeline_places_parser_dialogue(tmp_path: Path) -> None:
+    assert service._speaker_voice_id("Bilal", "Guard your left flank!") == "en_male_heroic"
+    assert service._speaker_voice_id("Zara", "Ready!") == "en_female_warm"
+
+    plan = service.plan_auto_sequence(E2E_SCRIPT)
+
+    def fake_synth(
+        text: str,
+        *,
+        speaker: str,
+        output_path: str | Path,
+        video_fps: int = 30,
+    ) -> dict[str, Any]:
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-line-wav")
+        return {
+            "samples": np.full(4410, 0.25, dtype=np.float32),
+            "sample_rate": 44100,
+            "duration_sec": 0.1,
+            "engine_used": "fake-local-tts",
+            "voice_id": f"fake-{speaker.lower()}",
+            "normalized_text": text,
+            "wav_path": str(path),
+        }
+
+    metadata = service.build_dialogue_audio_timeline(
+        plan,
+        tmp_path / "with-audio",
+        video_fps=30,
+        synth_line=fake_synth,
+    )
+
+    assert metadata is not None
+    assert metadata["duration_sec"] == 15.0
+    assert metadata["line_count"] == 2
+    assert metadata["engines"] == ["fake-local-tts"]
+    assert [line["speaker"] for line in metadata["lines"]] == ["Bilal", "Zara"]
+    assert [line["text"] for line in metadata["lines"]] == [
+        "Guard your left flank!",
+        "Ready!",
+    ]
+    assert metadata["clips"]["clip-04"][0]["start_sec"] == 9.15
+    assert Path(metadata["audio_json"]).is_file()
+
+    with wave.open(metadata["audio_wav"], "rb") as wav:
+        assert wav.getframerate() == 44100
+        assert wav.getnchannels() == 2
+        assert wav.getnframes() == 44100 * 15
 
 
 def test_auto_sequence_render_branch_with_fake_renderer(

@@ -54,9 +54,15 @@ ProgressCallback = Callable[[float, str], None]
 LogCallback = Callable[[str], None]
 ProcessCallback = Callable[[subprocess.Popen[str] | None], None]
 CancelCheck = Callable[[], bool]
+SpeechLineSynthesizer = Callable[..., dict[str, Any]]
 
 _PCT_JSON_RE = re.compile(r'"pct"\s*:\s*([0-9]+(?:\.[0-9]+)?)')
 _PCT_TEXT_RE = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*%")
+
+_FEMALE_DIALOGUE_SPEAKERS = {
+    name.lower()
+    for name in ("Amina", "Amara", "Layla", "Noor", "Sara", "Zara", "Zara")
+}
 
 
 @dataclass(frozen=True)
@@ -661,6 +667,273 @@ def _run_ffmpeg_once(
     }
 
 
+def _speaker_voice_id(speaker: str, text: str) -> str:
+    """Choose a local catalog voice for one parsed dialogue speaker."""
+
+    try:
+        from story_engine.normalizer import detect_script_language
+
+        language = detect_script_language(text)
+    except Exception:
+        language = "en"
+
+    is_female = str(speaker or "").strip().lower() in _FEMALE_DIALOGUE_SPEAKERS
+    if language in {"ur", "roman_ur"}:
+        return "ur_female_warm" if is_female else "ur_male_heroic"
+    return "en_female_warm" if is_female else "en_male_heroic"
+
+
+def _synthesize_speech_line(
+    text: str,
+    *,
+    speaker: str,
+    output_path: str | Path,
+    video_fps: int = 30,
+) -> dict[str, Any]:
+    """Synthesize one dialogue line with the existing fully local TTS stack.
+
+    ``voice_engine.tts`` uses a user-installed Piper ONNX voice when one is
+    present for the dedicated neural slot, and otherwise uses the eSpeak-NG
+    bridge/data bundled with the local ``piper-tts`` package.  No network or
+    hosted speech API is involved.
+    """
+
+    from voice_engine.tts import synthesize_speech_segment
+
+    return synthesize_speech_segment(
+        text,
+        voice_id=_speaker_voice_id(speaker, text),
+        video_fps=int(video_fps),
+        output_wav_path=Path(output_path),
+    )
+
+
+def build_dialogue_audio_timeline(
+    plan: AutoSequencePlan,
+    output_dir: str | Path,
+    *,
+    video_fps: int = 30,
+    synth_line: SpeechLineSynthesizer | None = None,
+    on_log: LogCallback | None = None,
+) -> dict[str, Any] | None:
+    """Create one WAV timeline from parser dialogue in an auto plan.
+
+    Dialogue is placed inside the clip that owns its parsed scene, preserving
+    parser order.  Other clips remain silent so the WAV duration matches the
+    planned combined-video duration and can be muxed without re-timing video.
+    Lines that do not fit inside their clip are trimmed and marked as such in
+    the returned metadata rather than silently shifting later scenes.
+    """
+
+    import numpy as np
+
+    from voice_engine.tts import TARGET_SAMPLE_RATE, write_stereo_wav
+
+    synthesize = synth_line or _synthesize_speech_line
+    sample_rate = int(TARGET_SAMPLE_RATE)
+    total_duration = float(
+        plan.total_duration_sec
+        or sum(float(clip.duration_sec) for clip in plan.clips)
+    )
+    timeline = np.zeros(int(round(total_duration * sample_rate)), dtype=np.float32)
+
+    scenes_by_id: dict[int, Mapping[str, Any]] = {}
+    for scene in plan.scenes:
+        try:
+            scenes_by_id[int(scene.get("scene_id") or 0)] = scene
+        except Exception:
+            continue
+
+    audio_dir = Path(output_dir).resolve() / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    all_lines: list[dict[str, Any]] = []
+    lines_by_clip: dict[str, list[dict[str, Any]]] = {}
+    engines: set[str] = set()
+    timeline_offset_sec = 0.0
+
+    for clip in plan.clips:
+        scene = scenes_by_id.get(int(clip.scene_id), {})
+        dialogue = scene.get("dialogue") or []
+        cursor_sec = 0.15
+        clip_lines: list[dict[str, Any]] = []
+
+        for line_index, entry in enumerate(dialogue, start=1):
+            if not isinstance(entry, Mapping):
+                continue
+            speaker = str(entry.get("speaker") or "Speaker").strip() or "Speaker"
+            text = str(entry.get("line") or "").strip()
+            if not text:
+                continue
+
+            line_wav = audio_dir / f"{clip.clip_id}-line-{line_index:02d}.wav"
+            result = synthesize(
+                text,
+                speaker=speaker,
+                output_path=line_wav,
+                video_fps=int(video_fps),
+            )
+
+            raw_samples_value = result.get("samples")
+            if raw_samples_value is None:
+                samples = np.asarray([], dtype=np.float32)
+            else:
+                samples = np.asarray(raw_samples_value, dtype=np.float32)
+            if samples.ndim > 1:
+                samples = np.mean(samples, axis=1).astype(np.float32)
+            samples = samples.reshape(-1)
+
+            source_rate = int(result.get("sample_rate") or sample_rate)
+            if source_rate != sample_rate and samples.size > 1:
+                target_len = int(round(samples.size * sample_rate / source_rate))
+                source_x = np.linspace(0.0, 1.0, samples.size, endpoint=False)
+                target_x = np.linspace(0.0, 1.0, max(1, target_len), endpoint=False)
+                samples = np.interp(target_x, source_x, samples).astype(np.float32)
+
+            start_sec = timeline_offset_sec + cursor_sec
+            start_idx = int(round(start_sec * sample_rate))
+            clip_end_idx = int(
+                round((timeline_offset_sec + float(clip.duration_sec)) * sample_rate)
+            )
+            available = max(0, min(clip_end_idx, timeline.size) - start_idx)
+            placed = int(min(int(samples.size), available))
+            if placed > 0:
+                timeline[start_idx : start_idx + placed] += samples[:placed]
+
+            engine_used = str(result.get("engine_used") or "local-tts")
+            engines.add(engine_used)
+            line_meta: dict[str, Any] = {
+                "clip_id": clip.clip_id,
+                "scene_id": int(clip.scene_id),
+                "speaker": speaker,
+                "text": text,
+                "normalized_text": str(result.get("normalized_text") or text),
+                "voice_id": str(result.get("voice_id") or _speaker_voice_id(speaker, text)),
+                "engine_used": engine_used,
+                "wav_path": str(line_wav),
+                "start_sec": round(float(start_sec), 3),
+                "duration_sec": round(float(samples.size / sample_rate), 3)
+                if sample_rate
+                else 0.0,
+                "placed_duration_sec": round(float(placed / sample_rate), 3)
+                if sample_rate
+                else 0.0,
+                "trimmed": bool(samples.size > placed),
+            }
+            clip_lines.append(line_meta)
+            all_lines.append(line_meta)
+            cursor_sec += (placed / float(sample_rate) if sample_rate else 0.0) + 0.25
+
+            if on_log:
+                on_log(
+                    f"Generated local dialogue audio for {clip.clip_id}: "
+                    f"{speaker} via {engine_used} "
+                    f"({line_meta['placed_duration_sec']}s at {line_meta['start_sec']}s)"
+                )
+
+        if clip_lines:
+            lines_by_clip[clip.clip_id] = clip_lines
+        timeline_offset_sec += float(clip.duration_sec)
+
+    if not all_lines:
+        return None
+
+    peak = float(np.max(np.abs(timeline))) if timeline.size else 0.0
+    if peak > 0.99:
+        timeline = (timeline * (0.89 / peak)).astype(np.float32)
+
+    timeline_wav = audio_dir / "dialogue-audio.wav"
+    write_stereo_wav(timeline_wav, timeline, sample_rate)
+
+    metadata: dict[str, Any] = {
+        "audio_wav": str(timeline_wav),
+        "sample_rate": sample_rate,
+        "duration_sec": round(float(total_duration), 3),
+        "line_count": len(all_lines),
+        "engines": sorted(engines),
+        "lines": all_lines,
+        "clips": lines_by_clip,
+    }
+    metadata_path = audio_dir / "dialogue-audio.json"
+    metadata["audio_json"] = str(metadata_path)
+    _write_json(metadata_path, metadata)
+    return _json_safe(metadata)
+
+
+def mux_audio_into_mp4(
+    video_path: str | Path,
+    audio_path: str | Path,
+    output_path: str | Path,
+    *,
+    on_log: LogCallback | None = None,
+    on_process: ProcessCallback | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> dict[str, Any]:
+    """Mux a WAV timeline into a rendered MP4 without re-encoding video."""
+
+    video = Path(video_path).resolve()
+    audio = Path(audio_path).resolve()
+    output = Path(output_path).resolve()
+    if not video.is_file():
+        raise FileNotFoundError(f"Video MP4 missing for audio mux: {video}")
+    if not audio.is_file():
+        raise FileNotFoundError(f"Audio file missing for audio mux: {audio}")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    if output.exists():
+        output.unlink()
+
+    command = [
+        ffmpeg_command(),
+        "-y",
+        "-i",
+        str(video),
+        "-i",
+        str(audio),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "160k",
+        "-shortest",
+        "-movflags",
+        "+faststart",
+        str(output),
+    ]
+    run = _run_ffmpeg_once(
+        command,
+        on_log=on_log,
+        on_process=on_process,
+        is_cancelled=is_cancelled,
+    )
+    if run["return_code"] != 0 or not output.is_file():
+        raise RuntimeError(f"FFmpeg audio mux failed: {run}")
+
+    verification = verify_mp4(output)
+    streams = verification.get("streams") or []
+    has_audio = any(
+        isinstance(stream, Mapping) and stream.get("type") == "audio"
+        for stream in streams
+    )
+    if not verification.get("verified") or (streams and not has_audio):
+        raise RuntimeError(
+            "Muxed MP4 failed verification or has no audio stream: "
+            + str(verification.get("error") or verification)
+        )
+
+    return {
+        "output_path": str(output),
+        "video_path": str(video),
+        "audio_path": str(audio),
+        "run": run,
+        "verification": verification,
+    }
+
+
 def concat_mp4_files(
     input_paths: Sequence[str | Path],
     output_path: str | Path,
@@ -789,6 +1062,7 @@ def execute_auto_motion_graphics_sequence(
     fps: int = 30,
     quality: str = "standard",
     brand_label: str = "SIDD STUDIO",
+    include_dialogue_audio: bool = False,
     on_progress: ProgressCallback | None = None,
     on_log: LogCallback | None = None,
     on_process: ProcessCallback | None = None,
@@ -870,6 +1144,8 @@ def execute_auto_motion_graphics_sequence(
         "plan": plan.to_dict(),
         "clips": clip_results,
         "combined_video": None,
+        "combined_video_silent": None,
+        "dialogue_audio": None,
         "verification": None,
     }
 
@@ -992,16 +1268,74 @@ def execute_auto_motion_graphics_sequence(
             )
         )
 
+    final_video_path = combined_path
+    final_verification = combined_verification
+
     result_payload.update(
         {
             "status": "completed",
             "combined_video": str(combined_path),
+            "combined_video_silent": str(combined_path),
             "concat": concat_result,
             "verification": combined_verification,
             "verification_json": str(combined_verification_path),
-            "elapsed_sec": round(time.time() - started, 3),
         }
     )
+
+    if include_dialogue_audio:
+        if on_progress:
+            on_progress(97.0, "Generating local dialogue audio")
+        dialogue_audio = build_dialogue_audio_timeline(
+            plan,
+            root,
+            video_fps=int(fps),
+            on_log=on_log,
+        )
+        if dialogue_audio:
+            for clip_result in clip_results:
+                clip_lines = dialogue_audio.get("clips", {}).get(
+                    str(clip_result.get("clip_id"))
+                )
+                if clip_lines:
+                    clip_result["dialogue_audio_lines"] = clip_lines
+
+            if on_progress:
+                on_progress(98.5, "Muxing dialogue audio into combined MP4")
+            muxed_path = root / "combined_with_audio.mp4"
+            mux_result = mux_audio_into_mp4(
+                combined_path,
+                str(dialogue_audio["audio_wav"]),
+                muxed_path,
+                on_log=on_log,
+                on_process=on_process,
+                is_cancelled=is_cancelled,
+            )
+            final_video_path = muxed_path
+            final_verification = mux_result["verification"]
+            verification_with_audio_path = _write_json(
+                root / "verification_with_audio.json", final_verification
+            )
+            result_payload.update(
+                {
+                    "combined_video": str(muxed_path),
+                    "combined_video_silent": str(combined_path),
+                    "dialogue_audio": dialogue_audio,
+                    "dialogue_audio_wav": dialogue_audio["audio_wav"],
+                    "dialogue_audio_json": dialogue_audio["audio_json"],
+                    "audio_mux": mux_result,
+                    "verification_with_audio": final_verification,
+                    "verification_with_audio_json": str(
+                        verification_with_audio_path
+                    ),
+                }
+            )
+        elif on_log:
+            on_log(
+                "Dialogue audio requested, but the parser found no dialogue "
+                "lines to synthesize."
+            )
+
+    result_payload["elapsed_sec"] = round(time.time() - started, 3)
     sequence_result_path = _write_json(
         root / "sequence-result.json", result_payload
     )
@@ -1013,7 +1347,7 @@ def execute_auto_motion_graphics_sequence(
     if on_log:
         on_log(
             "Combined MP4 verified: "
-            f"{combined_path} ({combined_verification.get('duration_sec')}s, "
-            f"{combined_verification.get('decoded_frames')} frames)"
+            f"{final_video_path} ({final_verification.get('duration_sec')}s, "
+            f"{final_verification.get('decoded_frames')} frames)"
         )
     return _json_safe(result_payload)
