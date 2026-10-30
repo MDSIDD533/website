@@ -1,0 +1,23 @@
+.git
+.gitignore
+.venv
+.pytest_cache
+__pycache__
+**/__pycache__
+*.py[cod]
+
+# Local/generated data must never be baked into the Render image.
+workspace_data
+models_data
+logs
+downloaded
+dollar-reserve-currency/renders
+frontend/node_modules
+frontend/dist
+frontend/tsconfig.tsbuildinfo
+
+# Local secrets/config and test-only material are not needed at runtime.
+.env
+.env.*
+!.env.example
+tests

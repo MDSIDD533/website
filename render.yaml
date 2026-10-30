@@ -1,0 +1,40 @@
+# Render Blueprint for SIDD AI VIDEO STUDIO (/studio).
+# Manual one-service creation from this branch also works: choose Docker,
+# plan Free, region Singapore, Dockerfile ./Dockerfile, health check
+# /api/health.
+services:
+  - type: web
+    name: sidd-ai-video-studio
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: arena/49e70a96-website
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: SIDD_HOST
+        value: 0.0.0.0
+      - key: SIDD_WORKSPACE_DIR
+        value: /tmp/sidd-workspace
+      - key: SIDD_MODELS_DIR
+        value: /tmp/sidd-models
+      - key: SIDD_DATABASE_PATH
+        value: /tmp/sidd-workspace/sidd_studio.db
+      - key: SIDD_LOG_DIR
+        value: /tmp/sidd-logs
+      - key: SIDD_LOCAL_ONLY_DEFAULT
+        value: "false"
+      - key: SIDD_ALLOW_MODEL_DOWNLOADS
+        value: "false"
+      - key: SIDD_MAX_CONCURRENT_JOBS
+        value: "1"
+      - key: SIDD_HYPERFRAMES_BIN
+        value: /opt/hyperframes-runtime/node_modules/.bin/hyperframes
+      - key: SIDD_HYPERFRAMES_BROWSER_PATH
+        value: /usr/local/bin/chromium-render
+      - key: HYPERFRAMES_BROWSER_PATH
+        value: /usr/local/bin/chromium-render
+      - key: HYPERFRAMES_TELEMETRY_DISABLED
+        value: "1"

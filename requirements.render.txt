@@ -1,0 +1,17 @@
+# Slim production dependencies for the Render /studio deployment.
+# Heavy local-only packages (bpy/Blender, Piper TTS, ONNX, SciPy and test
+# tooling) are intentionally excluded; the Motion Studio API does not need
+# them at startup, and Blender/TTS-specific features remain unavailable in
+# this small web image.
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+python-multipart==0.0.32
+python-dotenv==1.2.4
+imageio-ffmpeg==0.6.0
+av==18.1.0
+numpy==2.4.6
+Pillow==13.0.0
+psutil==7.2.2
+requests==2.34.2
+websockets==17.3
