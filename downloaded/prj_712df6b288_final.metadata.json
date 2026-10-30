@@ -1,0 +1,33 @@
+{
+  "project_id": "prj_712df6b288",
+  "job_id": "job_4aa29696b0",
+  "title": "SIDD AI Video Studio - Demo Video — Cinematic 16spp Recovery",
+  "output_file": "prj_712df6b288_final.mp4",
+  "size_bytes": 626783,
+  "sha256": "10657a11c95958c9358d2a81f963dc5a94e3102d94e194c11a37104a824c6a82",
+  "streams": [
+    ["video", "h264"],
+    ["audio", "aac"],
+    ["subtitle", "mov_text"]
+  ],
+  "resolution": "1280x720",
+  "fps": 24.0,
+  "container_frames": 153,
+  "decoded_frames": 153,
+  "video_duration_sec": 6.375,
+  "container_duration_sec": 7.174,
+  "scenes": [
+    { "scene_id": "scn_253dd8c809", "name": "EXT. ANCIENT FORTRESS - SUNSET", "internal_frames": 46 },
+    { "scene_id": "scn_3bd16a5443", "name": "EXT. BATTLEFIELD - NIGHT", "internal_frames": 53 }
+  ],
+  "render_profile": "cinematic: Cycles 16spp + OpenImageDenoise, 100% resolution, 720p, 16:9",
+  "characters": [
+    { "character_id": "chr_29b267641c", "name": "Bilal" },
+    { "character_id": "chr_c64c1bc500", "name": "Zara" }
+  ],
+  "render_time_sec": 6751.43,
+  "failed_scenes": [],
+  "warnings": [],
+  "verified_with": "PyAV 18.1.0 + ffprobe (decoded frame count equals container frame count)",
+  "verified_at": "2026-10-30T06:24:59Z"
+}
