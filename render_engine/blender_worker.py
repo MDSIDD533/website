@@ -83,9 +83,10 @@ def _configure_cycles(bpy: Any, quality_profile: str, width: int, height: int) -
 
     is_cinematic = quality_profile == "cinematic"
     if is_cinematic:
-        # Full-resolution showcase preset. Adaptive sampling makes 64 the cap,
-        # not the cost of every pixel; OIDN then removes the remaining grain.
-        samples = 64
+        # Full-resolution showcase preset, benchmarked on Scene 1/frame 14:
+        # 16spp + OIDN measured 39.94s/frame and 47.80dB PSNR vs the 64spp
+        # reference (133.86s/frame), so the user selected 16 as the cap.
+        samples = 16
         scale_pct = 100
         bounces = 4
         use_denoise = True
