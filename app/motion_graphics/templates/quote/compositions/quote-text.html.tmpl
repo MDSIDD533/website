@@ -1,0 +1,309 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      color: var(--ink_color, #ffffff);
+      font-family: Inter, Arial, sans-serif;
+    }
+    .quote-clip {
+      position: absolute;
+    }
+    .quote-anim {
+      opacity: 0;
+    }
+    #quote-kicker {
+      left: 210px;
+      top: 78px;
+      width: 1500px;
+      text-align: center;
+    }
+    #quote-kicker-anim {
+      color: var(--accent_color, #d4af37);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.85);
+    }
+    #quote-main {
+      left: 210px;
+      top: 182px;
+      width: 1500px;
+      text-align: center;
+    }
+    #quote-mark {
+      height: 96px;
+      color: var(--accent_color, #d4af37);
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 170px;
+      font-weight: 700;
+      line-height: 0.72;
+      opacity: 0;
+      text-shadow: 0 0 42px rgba(212, 175, 55, 0.35);
+    }
+    #quote-lines {
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      font-weight: 850;
+      line-height: 1.08;
+      letter-spacing: -0.025em;
+      text-shadow: 0 10px 46px rgba(0, 0, 0, 0.74);
+    }
+    .quote-line {
+      display: block;
+      white-space: nowrap;
+      opacity: 0;
+    }
+    .quote-line.is-accent {
+      color: var(--accent_color, #d4af37);
+    }
+    #quote-speaker {
+      margin-top: 46px;
+      font-family: "Space Mono", monospace;
+      font-size: 29px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      opacity: 0;
+      text-shadow: 0 4px 22px rgba(0, 0, 0, 0.88);
+    }
+    #quote-speaker-name {
+      color: var(--accent_color, #d4af37);
+    }
+    #quote-speaker-divider,
+    #quote-speaker-role {
+      color: var(--secondary_color, #4a90d9);
+    }
+    #quote-response {
+      left: 310px;
+      top: 788px;
+      width: 1300px;
+      text-align: center;
+    }
+    #quote-response-anim {
+      opacity: 0;
+      text-shadow: 0 5px 28px rgba(0, 0, 0, 0.88);
+    }
+    #quote-response-speaker {
+      color: var(--secondary_color, #4a90d9);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+    }
+    #quote-response-line {
+      margin-top: 12px;
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      font-size: 45px;
+      font-weight: 800;
+      line-height: 1.18;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+    }
+    #quote-context {
+      left: 210px;
+      top: 1004px;
+      width: 1500px;
+      text-align: center;
+    }
+    #quote-context-anim {
+      color: var(--ink_color, #ffffff);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      white-space: nowrap;
+      opacity: 0;
+      text-shadow: 0 3px 16px rgba(0, 0, 0, 0.9);
+    }
+  </style>
+  <div
+    id="root"
+    class="quote-text-root"
+    data-composition-id="quote-text"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"kicker","type":"string","label":"Kicker","default":"DIALOGUE · TEMPLATE 04"},{"id":"quote_line_1","type":"string","label":"Quote line 1","default":"Can a script become"},{"id":"quote_line_2","type":"string","label":"Quote line 2","default":"a film without a camera?"},{"id":"quote_line_3","type":"string","label":"Quote line 3","default":""},{"id":"accent_line","type":"number","label":"Accent line","default":2,"min":1,"max":3,"step":1},{"id":"quote_line_1_size","type":"number","label":"Quote line 1 size","default":104,"min":56,"max":130,"step":1},{"id":"quote_line_2_size","type":"number","label":"Quote line 2 size","default":98,"min":56,"max":130,"step":1},{"id":"quote_line_3_size","type":"number","label":"Quote line 3 size","default":56,"min":56,"max":130,"step":1},{"id":"speaker_name","type":"string","label":"Speaker name","default":"Bilal"},{"id":"speaker_role","type":"string","label":"Speaker role","default":"THE SKEPTIC"},{"id":"has_response","type":"boolean","label":"Has response","default":true},{"id":"response_speaker","type":"string","label":"Response speaker","default":"Zara"},{"id":"response_line","type":"string","label":"Response line","default":"If every word knows where to move."},{"id":"context_line","type":"string","label":"Context line","default":"ORIGINAL SAMPLE DIALOGUE · TEMPLATE 04"},{"id":"ink_color","type":"color","label":"Ink color","default":"#ffffff"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"}]'
+  >
+    <div id="quote-kicker" class="quote-clip clip" data-start="0" data-duration="__DURATION__" data-track-index="0">
+      <div id="quote-kicker-anim" class="quote-anim" data-var-text="kicker">DIALOGUE · TEMPLATE 04</div>
+    </div>
+    <div id="quote-main" class="quote-clip clip" data-start="0" data-duration="__DURATION__" data-track-index="1">
+      <div id="quote-mark">“</div>
+      <div id="quote-lines">
+        <span id="quote-line-1" class="quote-line" data-var-text="quote_line_1">Can a script become</span>
+        <span id="quote-line-2" class="quote-line is-accent" data-var-text="quote_line_2">a film without a camera?</span>
+        <span id="quote-line-3" class="quote-line" data-var-text="quote_line_3"></span>
+      </div>
+      <div id="quote-speaker">
+        <span id="quote-speaker-name" data-var-text="speaker_name">Bilal</span>
+        <span id="quote-speaker-divider"> · </span>
+        <span id="quote-speaker-role" data-var-text="speaker_role">THE SKEPTIC</span>
+      </div>
+    </div>
+    <div
+      id="quote-response"
+      class="quote-clip clip"
+      data-start="__RESPONSE_START__"
+      data-duration="__RESPONSE_DURATION__"
+      data-track-index="2"
+    >
+      <div id="quote-response-anim">
+        <div id="quote-response-speaker" data-var-text="response_speaker">Zara</div>
+        <div id="quote-response-line" data-var-text="response_line">If every word knows where to move.</div>
+      </div>
+    </div>
+    <div
+      id="quote-context"
+      class="quote-clip clip"
+      data-start="__CONTEXT_START__"
+      data-duration="__CONTEXT_DURATION__"
+      data-track-index="3"
+    >
+      <div id="quote-context-anim" class="quote-anim" data-var-text="context_line">ORIGINAL SAMPLE DIALOGUE · TEMPLATE 04</div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        quote_line_1: "Can a script become",
+        quote_line_2: "a film without a camera?",
+        quote_line_3: "",
+        accent_line: 2,
+        quote_line_1_size: 104,
+        quote_line_2_size: 98,
+        quote_line_3_size: 56,
+        speaker_role: "THE SKEPTIC",
+        has_response: true,
+        response_line: "If every word knows where to move.",
+        context_line: "ORIGINAL SAMPLE DIALOGUE · TEMPLATE 04",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+
+      const lineIds = ["quote-line-1", "quote-line-2", "quote-line-3"];
+      const accentLine = Math.max(1, Math.min(3, Number(vars.accent_line) || defaults.accent_line));
+      lineIds.forEach((id, index) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        const key = `quote_line_${index + 1}`;
+        const text = String(vars[key] ?? "");
+        const requested = Number(vars[`${key}_size`]) || defaults[`${key}_size`];
+        const fitted = Math.floor(1480 / (0.62 * Math.max(1, Array.from(text).length)));
+        element.style.display = text.trim() ? "block" : "none";
+        element.style.fontSize = `${Math.max(56, Math.min(requested, fitted))}px`;
+        element.classList.toggle("is-accent", index + 1 === accentLine);
+      });
+
+      const hasRole = Boolean(String(vars.speaker_role || "").trim());
+      const divider = document.getElementById("quote-speaker-divider");
+      const role = document.getElementById("quote-speaker-role");
+      if (divider) divider.style.display = hasRole ? "inline" : "none";
+      if (role) role.style.display = hasRole ? "inline" : "none";
+
+      const responseText = String(vars.response_line || "");
+      const hasResponse =
+        (vars.has_response === true || vars.has_response === "true") && Boolean(responseText.trim());
+      const response = document.getElementById("quote-response");
+      if (response && !hasResponse) response.style.display = "none";
+      const responseLine = document.getElementById("quote-response-line");
+      if (responseLine && Array.from(responseText).length > 46) {
+        responseLine.style.fontSize = "38px";
+      }
+
+      const context = document.getElementById("quote-context");
+      if (context && !String(vars.context_line || "").trim()) {
+        context.style.display = "none";
+      }
+
+      const at = (fraction) => Math.max(0, fraction * DURATION);
+      const span = (fraction) => Math.max(0.18, fraction * DURATION);
+      const exitAt = Math.max(at(0.78), DURATION - 0.44);
+      const exitSpan = Math.min(0.36, Math.max(0.18, DURATION - exitAt - 0.04));
+
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo(
+        "#quote-kicker-anim",
+        { opacity: 0, y: -18 },
+        { opacity: 1, y: 0, duration: span(0.06), ease: "power3.out" },
+        at(0.025),
+      );
+      tl.fromTo(
+        "#quote-mark",
+        { opacity: 0, scale: 0.72, filter: "blur(14px)" },
+        {
+          opacity: 0.92,
+          scale: 1,
+          filter: "blur(0px)",
+          duration: span(0.09),
+          ease: "power3.out",
+          transformOrigin: "50% 50%",
+        },
+        at(0.07),
+      );
+      tl.fromTo(
+        "#quote-line-1",
+        { opacity: 0, y: 44, filter: "blur(10px)" },
+        { opacity: 1, y: 0, filter: "blur(0px)", duration: span(0.075), ease: "power4.out" },
+        at(0.13),
+      );
+      tl.fromTo(
+        "#quote-line-2",
+        { opacity: 0, y: 44, filter: "blur(10px)" },
+        { opacity: 1, y: 0, filter: "blur(0px)", duration: span(0.075), ease: "power4.out" },
+        at(0.21),
+      );
+      tl.fromTo(
+        "#quote-line-3",
+        { opacity: 0, y: 44, filter: "blur(10px)" },
+        { opacity: 1, y: 0, filter: "blur(0px)", duration: span(0.075), ease: "power4.out" },
+        at(0.29),
+      );
+      tl.fromTo(
+        "#quote-speaker",
+        { opacity: 0, y: 24 },
+        { opacity: 1, y: 0, duration: span(0.06), ease: "power3.out" },
+        at(0.39),
+      );
+      tl.fromTo(
+        "#quote-context-anim",
+        { opacity: 0 },
+        { opacity: 0.76, duration: span(0.055), ease: "power2.out" },
+        at(0.24),
+      );
+      tl.fromTo(
+        "#quote-response-anim",
+        { opacity: 0, y: 38, scale: 0.97 },
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          duration: span(0.075),
+          ease: "power4.out",
+          transformOrigin: "50% 50%",
+        },
+        at(0.52),
+      );
+      tl.to(
+        [
+          "#quote-kicker-anim",
+          "#quote-mark",
+          ".quote-line",
+          "#quote-speaker",
+          "#quote-response-anim",
+          "#quote-context-anim",
+        ],
+        { opacity: 0, y: -18, filter: "blur(6px)", duration: exitSpan, ease: "power3.in" },
+        exitAt,
+      );
+      window.__timelines["quote-text"] = tl;
+    })();
+  </script>
+</template>
