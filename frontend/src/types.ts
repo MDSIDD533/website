@@ -203,6 +203,46 @@ export interface MotionPreview {
   variables: Record<string, any>;
 }
 
+export type MotionSelectionId = MotionTemplateId | 'auto';
+
+export interface MotionAutoClipPlan {
+  clip_id: string;
+  scene_id: number;
+  template: MotionTemplateId;
+  sentence_text: string;
+  reason: string;
+  reason_codes: string[];
+  request: Record<string, any>;
+  scene_duration_sec: number;
+  duration_sec: number;
+  warnings: string[];
+}
+
+export interface MotionAutoPlan {
+  planner_version: string;
+  policy: string;
+  script_text: string;
+  scenes: MotionParsedScene[];
+  clips: MotionAutoClipPlan[];
+  scene_count: number;
+  clip_count: number;
+  total_duration_sec: number;
+  warnings: string[];
+}
+
+export interface MotionAutoPreview {
+  template: 'auto';
+  mode: MotionJobMode;
+  fps: number;
+  quality: MotionJobQuality;
+  scenes: MotionParsedScene[];
+  scene_count: number;
+  clips: MotionAutoClipPlan[];
+  clip_count: number;
+  total_duration_sec: number;
+  plan: MotionAutoPlan;
+}
+
 export interface ModelItem {
   id: string;
   name: string;

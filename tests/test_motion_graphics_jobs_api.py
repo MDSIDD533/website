@@ -128,3 +128,95 @@ def test_motion_graphics_invalid_request_is_rejected_before_enqueue(
     assert response.status_code == 422
     after = api_client.get("/api/jobs").json()["jobs"]
     assert len(after) == len(before)
+
+
+AUTO_SCRIPT = (
+    "Bilal qile mein aata hai. Zara mash'al jalati hai. "
+    "Dono baat karte hain."
+)
+
+
+def test_auto_motion_graphics_preview(api_client: TestClient) -> None:
+    response = api_client.post(
+        "/api/jobs/motion-graphics/auto/preview",
+        json={
+            "script_text": AUTO_SCRIPT,
+            "mode": "build_only",
+            "fps": 30,
+            "quality": "standard",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["template"] == "auto"
+    assert payload["scene_count"] == 3
+    assert payload["clip_count"] == 3
+    assert payload["total_duration_sec"] == 9.0
+    assert [clip["template"] for clip in payload["clips"]] == [
+        "title",
+        "title",
+        "title",
+    ]
+    assert payload["scenes"][0]["actions"] == ["walk"]
+    assert payload["scenes"][2]["characters"] == ["Bilal", "Zara"]
+    assert payload["plan"]["policy"] == "scene_led_hybrid_v1"
+
+
+def test_auto_motion_graphics_build_only_job_and_artifacts(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post(
+        "/api/jobs/motion-graphics/auto",
+        json={
+            "script_text": AUTO_SCRIPT,
+            "mode": "build_only",
+            "fps": 30,
+            "quality": "standard",
+        },
+    )
+
+    assert response.status_code == 200
+    queued = response.json()["job"]
+    assert queued["job_type"] == "motion_graphics"
+    assert queued["payload"]["template"] == "auto"
+    assert queued["payload"]["planned_clip_count"] == 3
+
+    completed = _wait_for_job(api_client, queued["id"])
+    assert completed["status"] == "completed", completed
+    outputs = completed["output_paths"]
+    assert outputs["template"] == "auto"
+    assert outputs["mode"] == "build_only"
+    assert outputs["scene_count"] == 3
+    assert outputs["clip_count"] == 3
+    assert Path(outputs["auto_plan_json"]).is_file()
+    assert Path(outputs["parsed_scenes"]).is_file()
+    assert Path(outputs["sequence_result_json"]).is_file()
+    assert Path(outputs["clip_01_index_html"]).is_file()
+    assert Path(outputs["clip_03_variables_json"]).is_file()
+
+    artifact = api_client.get(
+        f"/api/jobs/{queued['id']}/artifacts/auto_plan_json"
+    )
+    assert artifact.status_code == 200
+    plan = artifact.json()
+    assert [clip["template"] for clip in plan["clips"]] == [
+        "title",
+        "title",
+        "title",
+    ]
+
+
+def test_auto_motion_graphics_blank_script_is_rejected_before_enqueue(
+    api_client: TestClient,
+) -> None:
+    before = api_client.get("/api/jobs").json()["jobs"]
+
+    response = api_client.post(
+        "/api/jobs/motion-graphics/auto",
+        json={"script_text": "   ", "mode": "build_only"},
+    )
+
+    assert response.status_code == 422
+    after = api_client.get("/api/jobs").json()["jobs"]
+    assert len(after) == len(before)

@@ -15,7 +15,11 @@ from pydantic import BaseModel, Field
 from backend.core.config import get_settings
 from backend.core.logging_config import get_recent_logs
 from backend.services.job_manager import get_job_manager
-from backend.services.motion_graphics_service import list_templates, prepare_request
+from backend.services.motion_graphics_service import (
+    list_templates,
+    plan_auto_motion_graphics,
+    prepare_request,
+)
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -45,6 +49,15 @@ class MotionGraphicsJobRequest(BaseModel):
     project_id: str | None = None
 
 
+class AutoMotionGraphicsJobRequest(BaseModel):
+    script_text: str = Field(min_length=1, max_length=20000)
+    mode: Literal["build_only", "render"] = "render"
+    fps: Literal[24, 30, 60] = 30
+    quality: Literal["draft", "standard", "high"] = "standard"
+    brand_label: str = Field(default="SIDD STUDIO", max_length=36)
+    project_id: str | None = None
+
+
 def _motion_preview_payload(req: MotionGraphicsJobRequest) -> dict[str, Any]:
     try:
         request_obj, scenes = prepare_request(
@@ -58,6 +71,32 @@ def _motion_preview_payload(req: MotionGraphicsJobRequest) -> dict[str, Any]:
         "scene_count": len(scenes),
         "request": jsonable_encoder(asdict(request_obj)),
         "variables": jsonable_encoder(request_obj.variables()),
+    }
+
+
+def _auto_motion_preview_payload(
+    req: AutoMotionGraphicsJobRequest,
+) -> dict[str, Any]:
+    try:
+        plan = plan_auto_motion_graphics(
+            req.script_text,
+            brand_label=req.brand_label,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    plan_payload = jsonable_encoder(plan.to_dict())
+    return {
+        "template": "auto",
+        "mode": req.mode,
+        "fps": req.fps,
+        "quality": req.quality,
+        "scenes": plan_payload["scenes"],
+        "scene_count": plan_payload["scene_count"],
+        "clips": plan_payload["clips"],
+        "clip_count": plan_payload["clip_count"],
+        "total_duration_sec": plan_payload["total_duration_sec"],
+        "plan": plan_payload,
     }
 
 
@@ -96,6 +135,38 @@ def api_enqueue_motion_graphics(req: MotionGraphicsJobRequest) -> dict[str, Any]
             "mode": req.mode,
             "fps": req.fps,
             "quality": req.quality,
+            "project_id": req.project_id,
+        },
+    )
+    return {"job": job, "preview": preview}
+
+
+@router.post("/motion-graphics/auto/preview")
+def api_preview_auto_motion_graphics(
+    req: AutoMotionGraphicsJobRequest,
+) -> dict[str, Any]:
+    return _auto_motion_preview_payload(req)
+
+
+@router.post("/motion-graphics/auto")
+def api_enqueue_auto_motion_graphics(
+    req: AutoMotionGraphicsJobRequest,
+) -> dict[str, Any]:
+    preview = _auto_motion_preview_payload(req)
+    job = get_job_manager().enqueue_job(
+        "motion_graphics",
+        project_id=req.project_id,
+        payload={
+            "template": "auto",
+            "script_text": req.script_text,
+            "auto_plan": preview["plan"],
+            "parsed_scene_count": preview["scene_count"],
+            "planned_clip_count": preview["clip_count"],
+            "planned_duration_sec": preview["total_duration_sec"],
+            "mode": req.mode,
+            "fps": req.fps,
+            "quality": req.quality,
+            "brand_label": req.brand_label,
             "project_id": req.project_id,
         },
     )

@@ -22,6 +22,7 @@ from backend.core.logging_config import get_logger
 from backend.services.hardware_service import evaluate_workload_warnings
 from backend.services.motion_graphics_service import (
     build_motion_graphics_project,
+    execute_auto_motion_graphics_sequence,
     render_motion_graphics_project,
     verify_mp4,
 )
@@ -568,12 +569,153 @@ class JobManager:
         )
         return updated_scene
 
+    def _execute_auto_motion_graphics_job(
+        self, job_id: str, payload: dict[str, Any], t_start: float
+    ) -> None:
+        """Plan, build/render, concatenate, and verify an auto sequence."""
+
+        mode = str(payload.get("mode") or "render")
+        script_text = str(payload.get("script_text") or "")
+        if not script_text.strip():
+            raise ValueError("auto motion-graphics script_text must not be empty")
+
+        settings = get_settings()
+        job_root = (settings.workspace_dir / "motion_graphics" / job_id).resolve()
+        output_root = job_root / "auto_sequence"
+        job_root.mkdir(parents=True, exist_ok=True)
+
+        self._update_job_state(
+            job_id,
+            current_stage="Planning auto motion-graphics sequence",
+            progress_pct=2.0,
+            progress_measurable=True,
+            log_line=f"Preparing auto-mapper sequence in {mode} mode.",
+        )
+
+        def _on_progress(pct: float, stage: str) -> None:
+            self._update_job_state(
+                job_id,
+                current_stage=stage,
+                progress_pct=max(0.0, min(100.0, float(pct))),
+                progress_measurable=True,
+            )
+
+        def _on_log(line: str) -> None:
+            self._update_job_state(job_id, log_line=line)
+
+        def _on_process(proc: subprocess.Popen[str] | None) -> None:
+            with self._lock:
+                if proc is None:
+                    self._active_procs.pop(job_id, None)
+                else:
+                    self._active_procs[job_id] = proc
+            self._update_job_state(job_id, worker_pid=proc.pid if proc else None)
+
+        result = execute_auto_motion_graphics_sequence(
+            script_text=script_text,
+            output_root=output_root,
+            mode=mode,
+            fps=int(payload.get("fps") or 60),
+            quality=str(payload.get("quality") or "standard"),
+            brand_label=str(payload.get("brand_label") or "SIDD STUDIO"),
+            on_progress=_on_progress,
+            on_log=_on_log,
+            on_process=_on_process,
+            is_cancelled=lambda: self._is_cancelled(job_id),
+        )
+
+        plan = result.get("plan") or {}
+        clips = result.get("clips") or []
+        outputs: dict[str, Any] = {
+            "project_dir": str(output_root),
+            "auto_plan_json": result.get("auto_plan_json"),
+            "parsed_scenes": result.get("parsed_scenes_json"),
+            "sequence_result_json": result.get("sequence_result_json"),
+            "template": "auto",
+            "mode": mode,
+            "scene_count": int(plan.get("scene_count") or len(plan.get("scenes") or [])),
+            "clip_count": int(plan.get("clip_count") or len(clips)),
+            "auto_plan": plan,
+            "clips": clips,
+            "render_elapsed_sec": result.get("elapsed_sec"),
+        }
+
+        for clip in clips:
+            if not isinstance(clip, dict):
+                continue
+            prefix = str(clip.get("clip_id") or "clip").replace("-", "_")
+            for artifact_name in (
+                "index_html",
+                "variables_json",
+                "build_manifest",
+                "video",
+                "render_log",
+                "verification_json",
+            ):
+                value = clip.get(artifact_name)
+                if isinstance(value, str) and value:
+                    outputs[f"{prefix}_{artifact_name}"] = value
+
+        if mode == "build_only":
+            if result.get("status") != "built":
+                raise RuntimeError(f"Auto sequence build did not complete: {result}")
+            self._update_job_state(
+                job_id,
+                status="completed",
+                current_stage="completed",
+                progress_pct=100.0,
+                progress_measurable=True,
+                output_paths=outputs,
+                completed=True,
+                log_line=(
+                    f"Build-only auto sequence completed with {len(clips)} "
+                    f"clip project(s) in {round(time.time() - t_start, 2)}s."
+                ),
+            )
+            return
+
+        if result.get("status") != "completed" or not result.get("combined_video"):
+            raise RuntimeError(f"Auto sequence render did not complete: {result}")
+
+        verification = result.get("verification") or {}
+        concat = result.get("concat") or {}
+        outputs.update(
+            {
+                "video": result.get("combined_video"),
+                "combined_video": result.get("combined_video"),
+                "verification": verification,
+                "verification_json": result.get("verification_json"),
+                "concat_method": concat.get("method"),
+            }
+        )
+        self._update_job_state(
+            job_id,
+            status="completed",
+            current_stage="completed",
+            progress_pct=100.0,
+            progress_measurable=True,
+            output_paths=outputs,
+            completed=True,
+            log_line=(
+                f"Auto sequence MP4 verified: {Path(str(result['combined_video'])).name} "
+                f"({outputs['clip_count']} clips, {verification.get('width')}×"
+                f"{verification.get('height')} @ {verification.get('fps')}fps, "
+                f"{verification.get('duration_sec')}s, "
+                f"{verification.get('decoded_frames')} decoded frames) in "
+                f"{round(time.time() - t_start, 2)}s."
+            ),
+        )
+
     def _execute_motion_graphics_job(
         self, job_id: str, payload: dict[str, Any], t_start: float
     ) -> None:
         """Build and optionally render one HyperFrames motion-graphics job."""
 
         template_id = str(payload.get("template") or "")
+        if template_id == "auto":
+            self._execute_auto_motion_graphics_job(job_id, payload, t_start)
+            return
+
         mode = str(payload.get("mode") or "render")
         request_payload = payload.get("request") or {}
         script_text = str(payload.get("script_text") or "")
