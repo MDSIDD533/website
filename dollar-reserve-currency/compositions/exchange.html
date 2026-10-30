@@ -1,0 +1,42 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; color: #fff; font-family: Inter, Arial, sans-serif; }
+    .ex-clip { position: absolute; }
+    #ex-copy { left: 110px; top: 112px; width: 760px; }
+    .ex-kicker { color: #d4af37; font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; letter-spacing: 0.18em; }
+    .ex-title { margin-top: 22px; font-family: Montserrat, Inter, Arial, sans-serif; font-size: 84px; font-weight: 900; line-height: 0.99; letter-spacing: -0.04em; }
+    .ex-line { margin-top: 32px; font-size: 47px; line-height: 1.2; font-weight: 750; color: #eef4ff; }
+    .ex-chip { left: 112px; width: 720px; }
+    #ex-chip-invoice { top: 610px; }
+    #ex-chip-loans { top: 704px; }
+    #ex-chip-pay { top: 798px; }
+    .ex-chip .anim { display: flex; align-items: center; gap: 22px; font-family: Montserrat, Inter, Arial, sans-serif; font-size: 36px; font-weight: 850; letter-spacing: 0.035em; }
+    .ex-dot { width: 18px; height: 18px; flex: 0 0 auto; background: #d4af37; }
+    #ex-source { left: 112px; top: 998px; width: 1200px; }
+    #ex-source .anim { color: #b8c4d6; font-family: "Space Mono", monospace; font-size: 28px; }
+  </style>
+  <div data-hf-id="hf-bcui" id="root" data-composition-id="exchange" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-p4mi" id="ex-copy" class="ex-clip clip" data-start="0" data-duration="9" data-track-index="0">
+      <div data-hf-id="hf-yi5j" class="anim">
+        <div data-hf-id="hf-t65f" class="ex-kicker">PILLAR 02</div>
+        <div data-hf-id="hf-tnqv" class="ex-title">MEDIUM OF<br data-hf-id="hf-x5px" />EXCHANGE</div>
+        <div data-hf-id="hf-fpm2" class="ex-line">The world pays<br data-hf-id="hf-rsrt" />in dollars.</div>
+      </div>
+    </div>
+    <div data-hf-id="hf-mry9" id="ex-chip-invoice" class="ex-clip ex-chip clip" data-start="1.5" data-duration="7.5" data-track-index="1"><div data-hf-id="hf-hvyf" class="anim"><span data-hf-id="hf-bk0g" class="ex-dot"></span><span data-hf-id="hf-akzb">TRADE INVOICES</span></div></div>
+    <div data-hf-id="hf-jd6h" id="ex-chip-loans" class="ex-clip ex-chip clip" data-start="2.35" data-duration="6.65" data-track-index="2"><div data-hf-id="hf-hhne" class="anim"><span data-hf-id="hf-zieg" class="ex-dot"></span><span data-hf-id="hf-7mcf">CROSS-BORDER LOANS</span></div></div>
+    <div data-hf-id="hf-6vc0" id="ex-chip-pay" class="ex-clip ex-chip clip" data-start="3.2" data-duration="5.8" data-track-index="3"><div data-hf-id="hf-h3cd" class="anim"><span data-hf-id="hf-ybhd" class="ex-dot"></span><span data-hf-id="hf-utwt">GLOBAL PAYMENTS</span></div></div>
+    <div data-hf-id="hf-s8tm" id="ex-source" class="ex-clip clip" data-start="0" data-duration="9" data-track-index="4"><div data-hf-id="hf-0cn3" class="anim">Context: BIS international banking &amp; FX market statistics</div></div>
+  </div>
+  <script>
+    const tlExchange = gsap.timeline({ paused: true });
+    gsap.set(["#ex-copy .anim", ".ex-chip .anim", "#ex-source .anim"], { opacity: 0 });
+    tlExchange.fromTo("#ex-copy .anim", { opacity: 0, x: -90 }, { opacity: 1, x: 0, duration: 0.65, ease: "power4.out", immediateRender: false }, 0.2);
+    tlExchange.fromTo("#ex-chip-invoice .anim", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 1.65);
+    tlExchange.fromTo("#ex-chip-loans .anim", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 2.5);
+    tlExchange.fromTo("#ex-chip-pay .anim", { opacity: 0, x: -60 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 3.35);
+    tlExchange.fromTo("#ex-source .anim", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.out", immediateRender: false }, 3.7);
+    tlExchange.to(["#ex-copy .anim", ".ex-chip .anim", "#ex-source .anim"], { opacity: 0, y: -18, filter: "blur(6px)", duration: 0.34, ease: "power3.in" }, 8.55);
+    window.__timelines["exchange"] = tlExchange;
+  </script>
+</template>

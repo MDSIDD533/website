@@ -1,0 +1,34 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; color: #fff; font-family: Inter, Arial, sans-serif; }
+    .nt-clip { position: absolute; }
+    #nt-copy { left: 110px; top: 78px; width: 980px; }
+    .nt-kicker { color: #a9c6e8; font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; letter-spacing: 0.18em; }
+    .nt-title { margin-top: 16px; font-family: Montserrat, Inter, Arial, sans-serif; font-size: 82px; font-weight: 900; line-height: 0.98; letter-spacing: -0.04em; }
+    .nt-title .gold { color: #d4af37; }
+    #nt-quote { left: 210px; top: 788px; width: 1500px; text-align: center; }
+    #nt-quote .anim { font-family: Montserrat, Inter, Arial, sans-serif; font-size: 52px; font-weight: 800; line-height: 1.18; letter-spacing: -0.02em; }
+    #nt-quote .gold { color: #d4af37; }
+    #nt-cycle { left: 360px; top: 944px; width: 1200px; text-align: center; }
+    #nt-cycle .anim { color: #a9c6e8; font-family: "Space Mono", monospace; font-size: 29px; font-weight: 700; letter-spacing: 0.12em; }
+  </style>
+  <div data-hf-id="hf-cwy7" id="root" data-composition-id="network" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-j1ve" id="nt-copy" class="nt-clip clip" data-start="0" data-duration="9" data-track-index="0">
+      <div data-hf-id="hf-yi5j" class="anim">
+        <div data-hf-id="hf-tupg" class="nt-kicker">WHY IT STICKS</div>
+        <div data-hf-id="hf-a5bf" class="nt-title">THE <span data-hf-id="hf-oyon" class="gold">NETWORK</span> EFFECT</div>
+      </div>
+    </div>
+    <div data-hf-id="hf-llsc" id="nt-quote" class="nt-clip clip" data-start="2.0" data-duration="7" data-track-index="1"><div data-hf-id="hf-fk7f" class="anim">“People use the dollar because<br data-hf-id="hf-x5px" /><span data-hf-id="hf-6yt6" class="gold">everyone else uses the dollar.</span>”</div></div>
+    <div data-hf-id="hf-2ias" id="nt-cycle" class="nt-clip clip" data-start="4.2" data-duration="4.8" data-track-index="2"><div data-hf-id="hf-5sno" class="anim">USE → LIQUIDITY → LOWER COST → MORE USE</div></div>
+  </div>
+  <script>
+    const tlNetwork = gsap.timeline({ paused: true });
+    gsap.set(["#nt-copy .anim", "#nt-quote .anim", "#nt-cycle .anim"], { opacity: 0 });
+    tlNetwork.fromTo("#nt-copy .anim", { opacity: 0, y: -44 }, { opacity: 1, y: 0, duration: 0.6, ease: "power4.out", immediateRender: false }, 0.2);
+    tlNetwork.fromTo("#nt-quote .anim", { opacity: 0, y: 46, scale: 0.97 }, { opacity: 1, y: 0, scale: 1, duration: 0.65, ease: "power4.out", immediateRender: false }, 2.15);
+    tlNetwork.fromTo("#nt-cycle .anim", { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 4.35);
+    tlNetwork.to(["#nt-copy .anim", "#nt-quote .anim", "#nt-cycle .anim"], { opacity: 0, y: -18, filter: "blur(6px)", duration: 0.34, ease: "power3.in" }, 8.55);
+    window.__timelines["network"] = tlNetwork;
+  </script>
+</template>

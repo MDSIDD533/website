@@ -1,0 +1,49 @@
+<template>
+  <style>
+    #root { position: absolute; inset: 0; overflow: hidden; color: #fff; font-family: Inter, Arial, sans-serif; }
+    .st-clip { position: absolute; }
+    #st-copy { left: 110px; top: 104px; width: 780px; }
+    .st-kicker { color: #d4af37; font-family: "Space Mono", monospace; font-size: 28px; font-weight: 700; letter-spacing: 0.18em; }
+    .st-title { margin-top: 20px; font-family: Montserrat, Inter, Arial, sans-serif; font-size: 84px; font-weight: 900; line-height: 0.99; letter-spacing: -0.04em; }
+    #st-numwrap { left: 108px; top: 402px; width: 780px; }
+    #st-num { color: #d4af37; font-size: 238px; font-weight: 900; line-height: 0.92; letter-spacing: -0.06em; font-variant-numeric: tabular-nums; }
+    .st-numlabel { margin-top: 10px; font-size: 38px; line-height: 1.22; font-weight: 750; color: #f4f7fb; }
+    #st-euro { left: 112px; top: 748px; width: 720px; }
+    #st-euro .anim { font-size: 39px; line-height: 1.25; color: #d7e6f7; }
+    #st-euro strong { color: #8fc1f2; font-size: 58px; font-weight: 900; }
+    #st-line { left: 112px; top: 868px; width: 760px; }
+    #st-line .anim { font-size: 34px; line-height: 1.3; color: #eef4ff; }
+    #st-source { left: 112px; top: 998px; width: 1200px; }
+    #st-source .anim { color: #b8c4d6; font-family: "Space Mono", monospace; font-size: 28px; }
+  </style>
+  <div data-hf-id="hf-xxio" id="root" data-composition-id="store" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-z3sb" id="st-copy" class="st-clip clip" data-start="0" data-duration="11" data-track-index="0">
+      <div data-hf-id="hf-yi5j" class="anim">
+        <div data-hf-id="hf-xx5q" class="st-kicker">PILLAR 03</div>
+        <div data-hf-id="hf-z2xr" class="st-title">STORE OF<br data-hf-id="hf-x5px" />VALUE</div>
+      </div>
+    </div>
+    <div data-hf-id="hf-swyu" id="st-numwrap" class="st-clip clip" data-start="0.7" data-duration="10.3" data-track-index="1">
+      <div data-hf-id="hf-hvyf" class="anim">
+        <div data-hf-id="hf-z4sw" id="st-num">0%</div>
+        <div data-hf-id="hf-yu32" class="st-numlabel">of global FX reserves<br data-hf-id="hf-rsrt" />are held in USD assets</div>
+      </div>
+    </div>
+    <div data-hf-id="hf-1xz7" id="st-euro" class="st-clip clip" data-start="3.4" data-duration="7.6" data-track-index="2"><div data-hf-id="hf-lp0x" class="anim">Next largest: the euro at <strong data-hf-id="hf-intj">20%</strong></div></div>
+    <div data-hf-id="hf-kyvt" id="st-line" class="st-clip clip" data-start="5.1" data-duration="5.9" data-track-index="3"><div data-hf-id="hf-8t6a" class="anim">Central banks save where billions can move in minutes.</div></div>
+    <div data-hf-id="hf-83xj" id="st-source" class="st-clip clip" data-start="0" data-duration="11" data-track-index="4"><div data-hf-id="hf-zegp" class="anim">Source: IMF COFER — currency composition of official FX reserves</div></div>
+  </div>
+  <script>
+    const tlStore = gsap.timeline({ paused: true });
+    const stReserves = { v: 0 };
+    gsap.set(["#st-copy .anim", "#st-numwrap .anim", "#st-euro .anim", "#st-line .anim", "#st-source .anim"], { opacity: 0 });
+    tlStore.fromTo("#st-copy .anim", { opacity: 0, x: -90 }, { opacity: 1, x: 0, duration: 0.65, ease: "power4.out", immediateRender: false }, 0.2);
+    tlStore.fromTo("#st-numwrap .anim", { opacity: 0, y: 54, scale: 0.96 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "power4.out", immediateRender: false }, 0.85);
+    tlStore.to(stReserves, { v: 57, duration: 1.55, ease: "power3.out", onUpdate: () => { document.getElementById("st-num").textContent = Math.round(stReserves.v) + "%"; } }, 1.1);
+    tlStore.fromTo("#st-euro .anim", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 3.55);
+    tlStore.fromTo("#st-line .anim", { opacity: 0, y: 34 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out", immediateRender: false }, 5.25);
+    tlStore.fromTo("#st-source .anim", { opacity: 0 }, { opacity: 1, duration: 0.45, ease: "power2.out", immediateRender: false }, 5.5);
+    tlStore.to(["#st-copy .anim", "#st-numwrap .anim", "#st-euro .anim", "#st-line .anim", "#st-source .anim"], { opacity: 0, y: -18, filter: "blur(6px)", duration: 0.36, ease: "power3.in" }, 10.5);
+    window.__timelines["store"] = tlStore;
+  </script>
+</template>

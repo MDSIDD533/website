@@ -161,8 +161,11 @@ def setup_world_lighting_and_weather(
     sky_presets = {
         "sunrise": ((0.55, 0.28, 0.14, 1.0), 1.3, (1.0, 0.68, 0.42), 3.4, (1.15, 0.15, 0.65)),
         "day": ((0.24, 0.44, 0.78, 1.0), 1.5, (1.0, 0.96, 0.88), 4.2, (0.65, 0.10, 0.45)),
-        "sunset": ((0.52, 0.17, 0.08, 1.0), 1.2, (1.0, 0.52, 0.24), 3.2, (1.28, 0.18, -0.55)),
-        "night": ((0.02, 0.035, 0.08, 1.0), 0.55, (0.48, 0.62, 0.95), 1.15, (0.85, 0.12, -0.35)),
+        # Dimmer, less saturated world wash at sunset: the old 1.2-strength
+        # orange sky flattened every surface into one monochrome tint and
+        # left the torches nothing to model. Let sun + torches do the work.
+        "sunset": ((0.36, 0.15, 0.10, 1.0), 0.55, (1.0, 0.52, 0.24), 2.7, (1.28, 0.18, -0.55)),
+        "night": ((0.02, 0.035, 0.08, 1.0), 0.40, (0.48, 0.62, 0.95), 1.15, (0.85, 0.12, -0.35)),
     }
     sky_rgba, world_strength, sun_rgb, sun_energy, sun_rot = sky_presets.get(time_of_day, sky_presets["sunset"])
 
@@ -182,20 +185,33 @@ def setup_world_lighting_and_weather(
     sun_data = bpy.data.lights.new(name="KeySun", type="SUN")
     sun_data.color = sun_rgb
     sun_data.energy = sun_energy
-    sun_data.angle = 0.08
+    # Wider sun disc = softer, more cinematic shadow edges than a pin light.
+    sun_data.angle = 0.28
     sun_obj = bpy.data.objects.new(name="KeySun", object_data=sun_data)
     col.objects.link(sun_obj)
     sun_obj.rotation_euler = sun_rot
 
-    # Soft fill area light from camera side so faces are always readable even at night
+    # Cool, restrained fill from camera-left: faces stay readable, but the
+    # warm key (sun + torches) keeps modelling them — teal/orange separation
+    # instead of the old flat, evenly-lit wash.
     fill_data = bpy.data.lights.new(name="CinematicFill", type="AREA")
-    fill_data.color = (0.75, 0.82, 1.0) if time_of_day == "night" else (1.0, 0.90, 0.78)
-    fill_data.energy = 85.0 if time_of_day == "night" else 60.0
+    fill_data.color = (0.58, 0.72, 1.0)
+    fill_data.energy = 42.0 if time_of_day == "night" else 30.0
     fill_data.size = 4.0
     fill_obj = bpy.data.objects.new(name="CinematicFill", object_data=fill_data)
     col.objects.link(fill_obj)
-    fill_obj.location = (-2.5, -4.8, 3.2)
+    fill_obj.location = (-2.5, -4.8, 3.0)
     fill_obj.rotation_euler = (1.15, 0.0, -0.45)
+
+    # Warm rim/back light behind the actors so hair, shoulders, and capes
+    # separate from the equally warm fortress wall behind them.
+    rim_data = bpy.data.lights.new(name="CinematicRim", type="POINT")
+    rim_data.color = (1.0, 0.58, 0.30)
+    rim_data.energy = 180.0 if time_of_day == "night" else 120.0
+    rim_data.shadow_soft_size = 0.35
+    rim_obj = bpy.data.objects.new(name="CinematicRim", object_data=rim_data)
+    col.objects.link(rim_obj)
+    rim_obj.location = (0.0, 3.4, 2.8)
 
     # Animated atmospheric particles (rain drops, embers, dust motes, or fog planes)
     if weather in {"rain", "dust", "fire", "smoke"}:
@@ -250,30 +266,103 @@ def build_environment_in_blender(
     env_meta = next((e for e in ENVIRONMENT_CATALOG if e["id"] == environment_preset), ENVIRONMENT_CATALOG[0])
     wet_roughness = 0.22 if weather == "rain" else 0.86
 
-    ground_mat = make_material(bpy, "EnvGround", hex_to_rgba(env_meta["ground_color"]), roughness=wet_roughness)
-    stone_mat = make_material(bpy, "EnvStone", hex_to_rgba(env_meta["accent_color"]), roughness=0.78)
-    dark_wood_mat = make_material(bpy, "EnvWood", hex_to_rgba("#4a3321"), roughness=0.82)
-    foliage_mat = make_material(bpy, "EnvFoliage", hex_to_rgba("#294d29"), roughness=0.75)
-    banner_mat = make_material(bpy, "EnvBanner", hex_to_rgba("#8a1c24"), roughness=0.65)
+    ground_mat = make_material(
+        bpy,
+        "EnvGround",
+        hex_to_rgba(env_meta["ground_color"]),
+        roughness=wet_roughness,
+        # Broad tonal mottling (micro-grain averages away at this distance).
+        noise_scale=35.0,
+        bump_strength=0.05,
+        roughness_variation=0.14,
+    )
+    stone_mat = make_material(
+        bpy,
+        "EnvStone",
+        hex_to_rgba(env_meta["accent_color"]),
+        roughness=0.82,
+        noise_scale=14.0,
+        bump_strength=0.07,
+        roughness_variation=0.16,
+    )
+    dark_stone_mat = make_material(
+        bpy,
+        "EnvStoneDark",
+        hex_to_rgba("#5d4a34"),
+        roughness=0.88,
+        noise_scale=16.0,
+        bump_strength=0.06,
+        roughness_variation=0.14,
+    )
+    dark_wood_mat = make_material(
+        bpy,
+        "EnvWood",
+        hex_to_rgba("#4a3321"),
+        roughness=0.82,
+        noise_scale=10.0,
+        bump_strength=0.05,
+        roughness_variation=0.10,
+    )
+    foliage_mat = make_material(
+        bpy,
+        "EnvFoliage",
+        hex_to_rgba("#294d29"),
+        roughness=0.80,
+        noise_scale=7.0,
+        bump_strength=0.06,
+        roughness_variation=0.12,
+    )
+    banner_mat = make_material(
+        bpy,
+        "EnvBanner",
+        hex_to_rgba("#8a1c24"),
+        roughness=0.70,
+        sheen_weight=0.45,
+        noise_scale=14.0,
+        bump_strength=0.025,
+        roughness_variation=0.08,
+    )
+    metal_mat = make_material(bpy, "EnvMetal", hex_to_rgba("#6d5636"), roughness=0.30, metallic=1.0)
     flame_mat = make_material(bpy, "EnvFlame", (1.0, 0.42, 0.06, 1.0), roughness=0.2, emission_strength=16.0)
 
-    # Expansive ground plane
+    # Expansive ground plane + scattered foreground pebbles for scale/texture.
     _add_mesh(bpy, col, "plane", "GroundPlane", (0, 0, 0), (45.0, 45.0, 1.0), ground_mat)
+    for pebble_idx in range(36):
+        pebble_x = rng.uniform(-6.0, 6.0)
+        pebble_y = rng.uniform(-2.5, 5.5)
+        if abs(pebble_x) < 1.6 and -1.2 < pebble_y < 1.4:
+            continue  # keep the actors' footing clear
+        pebble_r = rng.uniform(0.035, 0.11)
+        _add_mesh(
+            bpy,
+            col,
+            "sphere",
+            f"Pebble_{pebble_idx}",
+            (pebble_x, pebble_y, pebble_r * 0.28),
+            (pebble_r, pebble_r * rng.uniform(0.7, 1.0), pebble_r * 0.42),
+            dark_stone_mat if pebble_idx % 3 else stone_mat,
+            rot=(0.0, 0.0, rng.uniform(0.0, 3.14)),
+        )
 
     def _add_torch(name: str, x: float, y: float, z: float) -> None:
         _add_mesh(bpy, col, "cylinder", f"{name}_Post", (x, y, z * 0.5), (0.06, 0.06, z * 0.5), dark_wood_mat)
         flame = _add_mesh(bpy, col, "cone", f"{name}_Flame", (x, y, z + 0.14), (0.11, 0.11, 0.18), flame_mat)
+        _add_mesh(bpy, col, "cylinder", f"{name}_Bracket", (x, y, z + 0.03), (0.085, 0.085, 0.030), metal_mat)
         pt = bpy.data.lights.new(name=f"{name}_Light", type="POINT")
         pt.color = (1.0, 0.52, 0.16)
-        pt.energy = 140.0 if time_of_day == "night" else 55.0
+        base_energy = 240.0 if time_of_day == "night" else 110.0
+        pt.energy = base_energy
+        pt.shadow_soft_size = 0.28
         pt_obj = bpy.data.objects.new(name=f"{name}_Light", object_data=pt)
         col.objects.link(pt_obj)
         pt_obj.location = (x, y, z + 0.25)
-        # Subtle animated torch flicker
+        # Animated torch flicker in both flame shape and emitted light energy.
         for f in range(frame_start, frame_end + 1, max(1, (frame_end - frame_start) // 6 or 1)):
             s = 1.0 + 0.16 * math.sin(f * 0.9 + x)
             flame.scale = (0.11 * s, 0.11 * s, 0.18 * (2.0 - s))
             flame.keyframe_insert(data_path="scale", frame=f)
+            pt.energy = base_energy * (0.88 + 0.20 * (0.5 + 0.5 * math.sin(f * 1.7 + x * 2.1)))
+            pt.keyframe_insert(data_path="energy", frame=f)
 
     def _add_waving_banner(name: str, x: float, y: float, z: float) -> None:
         _add_mesh(bpy, col, "cylinder", f"{name}_Pole", (x, y, z * 0.5), (0.04, 0.04, z * 0.5), dark_wood_mat)
@@ -292,6 +381,9 @@ def build_environment_in_blender(
             _add_mesh(bpy, col, "cube", f"Crenel_{crenel_x}", (float(crenel_x), 5.9, 4.45), (0.48, 0.58, 0.32), stone_mat)
         _add_mesh(bpy, col, "cylinder", "WatchTowerL", (-6.2, 5.8, 3.4), (1.35, 1.35, 3.4), stone_mat)
         _add_mesh(bpy, col, "cylinder", "WatchTowerR", (6.2, 5.8, 3.4), (1.35, 1.35, 3.4), stone_mat)
+        # NOTE: applied-on panels/courses were tried and read as scaffolding
+        # in renders. The wall's surface interest comes from the procedural
+        # stone material, buttresses, towers, and windows instead.
         if environment_preset in {"ancient_city", "palace", "temple"}:
             _add_mesh(bpy, col, "sphere", "DomeCenter", (0.0, 7.5, 4.4), (2.2, 2.2, 1.8), stone_mat)
             for px in (-3.2, -1.4, 1.4, 3.2):
