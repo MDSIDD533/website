@@ -1,0 +1,351 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      color: var(--ink_color, #ffffff);
+      font-family: Inter, Arial, sans-serif;
+    }
+    .outro-clip {
+      position: absolute;
+    }
+    .outro-anim {
+      opacity: 0;
+    }
+    #outro-kicker {
+      left: 210px;
+      top: 42px;
+      width: 1500px;
+      text-align: center;
+    }
+    #outro-kicker-anim {
+      color: var(--accent_color, #d4af37);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.88);
+    }
+    #outro-main {
+      left: 210px;
+      top: 190px;
+      width: 1500px;
+      text-align: center;
+    }
+    #outro-emblem {
+      width: 104px;
+      height: 104px;
+      margin: 0 auto 34px;
+      border: 2px solid var(--accent_color, #d4af37);
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.3);
+      box-shadow: 0 0 44px rgba(212, 175, 55, 0.2);
+      color: var(--accent_color, #d4af37);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      font-size: 54px;
+      font-weight: 900;
+      line-height: 1;
+      opacity: 0;
+      text-shadow: 0 5px 24px rgba(0, 0, 0, 0.85);
+    }
+    #outro-lines {
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      font-weight: 900;
+      line-height: 1.04;
+      letter-spacing: -0.025em;
+      text-transform: uppercase;
+      text-shadow: 0 10px 48px rgba(0, 0, 0, 0.78);
+    }
+    .outro-line {
+      display: block;
+      white-space: nowrap;
+      opacity: 0;
+    }
+    .outro-line.is-accent {
+      color: var(--accent_color, #d4af37);
+    }
+    #outro-tagline {
+      margin-top: 34px;
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      font-size: 44px;
+      font-weight: 750;
+      line-height: 1.18;
+      letter-spacing: -0.018em;
+      white-space: nowrap;
+      opacity: 0;
+      text-shadow: 0 6px 30px rgba(0, 0, 0, 0.88);
+    }
+    #outro-brand {
+      margin-top: 26px;
+      color: var(--secondary_color, #4a90d9);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.24em;
+      text-transform: uppercase;
+      opacity: 0;
+      text-shadow: 0 4px 22px rgba(0, 0, 0, 0.9);
+    }
+    #outro-credits {
+      left: 210px;
+      top: 802px;
+      width: 1500px;
+      text-align: center;
+    }
+    #outro-credits-anim {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 30px;
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      white-space: nowrap;
+      opacity: 0;
+      text-shadow: 0 4px 22px rgba(0, 0, 0, 0.9);
+    }
+    .outro-credit-separator {
+      color: var(--accent_color, #d4af37);
+    }
+    #outro-cta {
+      left: 210px;
+      top: 888px;
+      width: 1500px;
+      text-align: center;
+    }
+    #outro-cta-anim {
+      display: inline-block;
+      padding: 18px 38px;
+      border: 1px solid var(--accent_color, #d4af37);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.34);
+      color: var(--accent_color, #d4af37);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      opacity: 0;
+      text-shadow: 0 4px 22px rgba(0, 0, 0, 0.9);
+    }
+  </style>
+  <div
+    id="root"
+    class="outro-text-root"
+    data-composition-id="outro-text"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"kicker","type":"string","label":"Kicker","default":"THE END · TEMPLATE 05"},{"id":"closing_line_1","type":"string","label":"Closing line 1","default":"THIS STORY ENDS"},{"id":"closing_line_2","type":"string","label":"Closing line 2","default":"THE NEXT ONE BEGINS"},{"id":"closing_line_3","type":"string","label":"Closing line 3","default":""},{"id":"accent_line","type":"number","label":"Accent line","default":2,"min":1,"max":3,"step":1},{"id":"closing_line_1_size","type":"number","label":"Closing line 1 size","default":108,"min":56,"max":140,"step":1},{"id":"closing_line_2_size","type":"number","label":"Closing line 2 size","default":108,"min":56,"max":140,"step":1},{"id":"closing_line_3_size","type":"number","label":"Closing line 3 size","default":56,"min":56,"max":140,"step":1},{"id":"tagline","type":"string","label":"Tagline","default":"Built locally, frame by frame."},{"id":"brand_label","type":"string","label":"Brand label","default":"SIDD STUDIO"},{"id":"glyph","type":"string","label":"Glyph","default":"S"},{"id":"credit_count","type":"number","label":"Credit count","default":3,"min":0,"max":3,"step":1},{"id":"credit_line_1","type":"string","label":"Credit line 1","default":"SCRIPT TO MOTION"},{"id":"credit_line_2","type":"string","label":"Credit line 2","default":"RENDERED LOCALLY"},{"id":"credit_line_3","type":"string","label":"Credit line 3","default":"1080P · 60 FPS"},{"id":"cta_label","type":"string","label":"CTA label","default":"NEXT STORY"},{"id":"ink_color","type":"color","label":"Ink color","default":"#ffffff"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"}]'
+  >
+    <div id="outro-kicker" class="outro-clip clip" data-start="0" data-duration="__DURATION__" data-track-index="0">
+      <div id="outro-kicker-anim" class="outro-anim" data-var-text="kicker">THE END · TEMPLATE 05</div>
+    </div>
+    <div id="outro-main" class="outro-clip clip" data-start="0" data-duration="__DURATION__" data-track-index="1">
+      <div id="outro-emblem"><span data-var-text="glyph">S</span></div>
+      <div id="outro-lines">
+        <span id="outro-line-1" class="outro-line" data-var-text="closing_line_1">THIS STORY ENDS</span>
+        <span id="outro-line-2" class="outro-line is-accent" data-var-text="closing_line_2">THE NEXT ONE BEGINS</span>
+        <span id="outro-line-3" class="outro-line" data-var-text="closing_line_3"></span>
+      </div>
+      <div id="outro-tagline" data-var-text="tagline">Built locally, frame by frame.</div>
+      <div id="outro-brand" data-var-text="brand_label">SIDD STUDIO</div>
+    </div>
+    <div
+      id="outro-credits"
+      class="outro-clip clip"
+      data-start="__CREDITS_START__"
+      data-duration="__CREDITS_DURATION__"
+      data-track-index="2"
+    >
+      <div id="outro-credits-anim">
+        <span id="outro-credit-1" data-var-text="credit_line_1">SCRIPT TO MOTION</span>
+        <span id="outro-credit-sep-1" class="outro-credit-separator">•</span>
+        <span id="outro-credit-2" data-var-text="credit_line_2">RENDERED LOCALLY</span>
+        <span id="outro-credit-sep-2" class="outro-credit-separator">•</span>
+        <span id="outro-credit-3" data-var-text="credit_line_3">1080P · 60 FPS</span>
+      </div>
+    </div>
+    <div
+      id="outro-cta"
+      class="outro-clip clip"
+      data-start="__CTA_START__"
+      data-duration="__CTA_DURATION__"
+      data-track-index="3"
+    >
+      <div id="outro-cta-anim" data-var-text="cta_label">NEXT STORY</div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        closing_line_1: "THIS STORY ENDS",
+        closing_line_2: "THE NEXT ONE BEGINS",
+        closing_line_3: "",
+        accent_line: 2,
+        closing_line_1_size: 108,
+        closing_line_2_size: 108,
+        closing_line_3_size: 56,
+        tagline: "Built locally, frame by frame.",
+        brand_label: "SIDD STUDIO",
+        glyph: "S",
+        credit_line_1: "SCRIPT TO MOTION",
+        credit_line_2: "RENDERED LOCALLY",
+        credit_line_3: "1080P · 60 FPS",
+        cta_label: "NEXT STORY",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+
+      const lineIds = ["outro-line-1", "outro-line-2", "outro-line-3"];
+      const accentLine = Math.max(1, Math.min(3, Number(vars.accent_line) || defaults.accent_line));
+      lineIds.forEach((id, index) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        const key = `closing_line_${index + 1}`;
+        const text = String(vars[key] ?? "");
+        const requested = Number(vars[`${key}_size`]) || defaults[`${key}_size`];
+        const fitted = Math.floor(1480 / (0.62 * Math.max(1, Array.from(text).length)));
+        element.style.display = text.trim() ? "block" : "none";
+        element.style.fontSize = `${Math.max(56, Math.min(requested, fitted))}px`;
+        element.classList.toggle("is-accent", index + 1 === accentLine);
+      });
+
+      const tagline = String(vars.tagline || "");
+      const taglineEl = document.getElementById("outro-tagline");
+      if (taglineEl) {
+        taglineEl.style.display = tagline.trim() ? "block" : "none";
+        if (Array.from(tagline).length > 46) taglineEl.style.fontSize = "36px";
+      }
+      const brandEl = document.getElementById("outro-brand");
+      if (brandEl && !String(vars.brand_label || "").trim()) {
+        brandEl.style.display = "none";
+      }
+      const emblem = document.getElementById("outro-emblem");
+      if (emblem && !String(vars.glyph || "").trim()) {
+        emblem.style.display = "none";
+      }
+
+      const creditTexts = [1, 2, 3].map((i) => String(vars[`credit_line_${i}`] || ""));
+      const hasCredits = creditTexts.some((text) => text.trim());
+      const credits = document.getElementById("outro-credits");
+      if (credits && !hasCredits) credits.style.display = "none";
+      creditTexts.forEach((text, index) => {
+        const element = document.getElementById(`outro-credit-${index + 1}`);
+        if (element) element.style.display = text.trim() ? "inline" : "none";
+      });
+      const sep1 = document.getElementById("outro-credit-sep-1");
+      if (sep1) {
+        sep1.style.display = creditTexts[0].trim() && (creditTexts[1].trim() || creditTexts[2].trim()) ? "inline" : "none";
+      }
+      const sep2 = document.getElementById("outro-credit-sep-2");
+      if (sep2) {
+        sep2.style.display = creditTexts[1].trim() && creditTexts[2].trim() ? "inline" : "none";
+      }
+
+      const cta = document.getElementById("outro-cta");
+      if (cta && !String(vars.cta_label || "").trim()) cta.style.display = "none";
+
+      const at = (fraction) => Math.max(0, fraction * DURATION);
+      const span = (fraction) => Math.max(0.18, fraction * DURATION);
+      const exitAt = Math.max(at(0.9), DURATION - 0.32);
+      const exitSpan = Math.min(0.26, Math.max(0.16, DURATION - exitAt - 0.03));
+
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo(
+        "#outro-kicker-anim",
+        { opacity: 0, y: -18 },
+        { opacity: 1, y: 0, duration: span(0.06), ease: "power3.out" },
+        at(0.025),
+      );
+      tl.fromTo(
+        "#outro-emblem",
+        { opacity: 0, scale: 0.76, filter: "blur(12px)" },
+        {
+          opacity: 1,
+          scale: 1,
+          filter: "blur(0px)",
+          duration: span(0.09),
+          ease: "power3.out",
+          transformOrigin: "50% 50%",
+        },
+        at(0.08),
+      );
+      tl.fromTo(
+        "#outro-line-1",
+        { opacity: 0, y: 44, filter: "blur(10px)" },
+        { opacity: 1, y: 0, filter: "blur(0px)", duration: span(0.075), ease: "power4.out" },
+        at(0.16),
+      );
+      tl.fromTo(
+        "#outro-line-2",
+        { opacity: 0, y: 44, filter: "blur(10px)" },
+        { opacity: 1, y: 0, filter: "blur(0px)", duration: span(0.075), ease: "power4.out" },
+        at(0.24),
+      );
+      tl.fromTo(
+        "#outro-line-3",
+        { opacity: 0, y: 44, filter: "blur(10px)" },
+        { opacity: 1, y: 0, filter: "blur(0px)", duration: span(0.075), ease: "power4.out" },
+        at(0.32),
+      );
+      tl.fromTo(
+        "#outro-tagline",
+        { opacity: 0, y: 28 },
+        { opacity: 1, y: 0, duration: span(0.065), ease: "power3.out" },
+        at(0.38),
+      );
+      tl.fromTo(
+        "#outro-brand",
+        { opacity: 0, y: 18 },
+        { opacity: 1, y: 0, duration: span(0.055), ease: "power3.out" },
+        at(0.44),
+      );
+      tl.fromTo(
+        "#outro-credits-anim",
+        { opacity: 0, y: 28 },
+        { opacity: 0.92, y: 0, duration: span(0.065), ease: "power3.out" },
+        at(0.45),
+      );
+      tl.fromTo(
+        "#outro-cta-anim",
+        { opacity: 0, y: 30, scale: 0.96 },
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          duration: span(0.07),
+          ease: "power4.out",
+          transformOrigin: "50% 50%",
+        },
+        at(0.58),
+      );
+      tl.to(
+        [
+          "#outro-kicker-anim",
+          "#outro-emblem",
+          ".outro-line",
+          "#outro-tagline",
+          "#outro-brand",
+          "#outro-credits-anim",
+          "#outro-cta-anim",
+        ],
+        { opacity: 0, y: -14, filter: "blur(5px)", duration: exitSpan, ease: "power3.in" },
+        exitAt,
+      );
+      window.__timelines["outro-text"] = tl;
+    })();
+  </script>
+</template>

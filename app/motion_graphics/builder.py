@@ -41,6 +41,7 @@ TITLE_TEMPLATE_DIR = TEMPLATE_ROOT / "title"
 DATA_TEMPLATE_DIR = TEMPLATE_ROOT / "data"
 SHAPE_TEMPLATE_DIR = TEMPLATE_ROOT / "shape"
 QUOTE_TEMPLATE_DIR = TEMPLATE_ROOT / "quote"
+OUTRO_TEMPLATE_DIR = TEMPLATE_ROOT / "outro"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LIBRARY_DIR = REPO_ROOT / "dollar-reserve-currency" / "assets" / "lib"
 
@@ -165,6 +166,33 @@ QUOTE_TEXT_VARIABLE_IDS = (
     "response_speaker",
     "response_line",
     "context_line",
+    "ink_color",
+    "accent_color",
+    "secondary_color",
+)
+OUTRO_STAGE_VARIABLE_IDS = (
+    "ground_color",
+    "accent_color",
+    "secondary_color",
+    "muted_color",
+)
+OUTRO_TEXT_VARIABLE_IDS = (
+    "kicker",
+    "closing_line_1",
+    "closing_line_2",
+    "closing_line_3",
+    "accent_line",
+    "closing_line_1_size",
+    "closing_line_2_size",
+    "closing_line_3_size",
+    "tagline",
+    "brand_label",
+    "glyph",
+    "credit_count",
+    "credit_line_1",
+    "credit_line_2",
+    "credit_line_3",
+    "cta_label",
     "ink_color",
     "accent_color",
     "secondary_color",
@@ -1238,6 +1266,209 @@ def quote_request_from_scene(
 
 
 @dataclass(frozen=True)
+class OutroBuildRequest:
+    """Validated inputs for the reusable Outro/closing-card template.
+
+    ``closing_lines`` are explicit display lines, while ``credit_lines`` are
+    short end-card facts or credits shown as one centered row.  The brand
+    glyph is intentionally a single character so it can act as a compact
+    monogram inside the closing emblem.
+    """
+
+    kicker: str = "THE END · TEMPLATE 05"
+    closing_lines: tuple[str, ...] | Sequence[str] | str = (
+        "THIS STORY ENDS",
+        "THE NEXT ONE BEGINS",
+    )
+    accent_line: int | None = None
+    tagline: str = "Built locally, frame by frame."
+    brand_label: str = "SIDD STUDIO"
+    glyph: str = "S"
+    credit_lines: tuple[str, ...] | Sequence[str] | str = (
+        "SCRIPT TO MOTION",
+        "RENDERED LOCALLY",
+        "1080P · 60 FPS",
+    )
+    cta_label: str = "NEXT STORY"
+    duration_sec: float = 7.0
+    ground_color: str = "#0a0a0f"
+    ink_color: str = "#ffffff"
+    accent_color: str = "#d4af37"
+    secondary_color: str = "#4a90d9"
+    muted_color: str = "#8b98a8"
+    width: int = 1920
+    height: int = 1080
+
+    def __post_init__(self) -> None:
+        closing_lines = tuple(
+            _clean_line(line, "closing line", 24)
+            for line in _as_text_lines(self.closing_lines)
+        )
+        if not 1 <= len(closing_lines) <= 3:
+            raise ValueError("closing_lines must contain 1 to 3 non-empty lines")
+
+        accent_line = len(closing_lines) if self.accent_line is None else self.accent_line
+        if isinstance(accent_line, bool) or not isinstance(accent_line, int):
+            raise ValueError("accent_line must be an integer")
+        if not 1 <= accent_line <= len(closing_lines):
+            raise ValueError("accent_line must point to an existing closing line")
+
+        credit_lines = tuple(
+            _clean_line(line, "credit line", 30)
+            for line in _as_text_lines(self.credit_lines)
+        )
+        if len(credit_lines) > 3:
+            raise ValueError("credit_lines must contain at most 3 lines")
+        if sum(len(line) for line in credit_lines) > 78:
+            raise ValueError("credit_lines are too long for one closing row")
+        if (self.width, self.height) != (1920, 1080):
+            raise ValueError("Outro template v1 supports 1920x1080 only")
+
+        duration = float(self.duration_sec)
+        if not math.isfinite(duration) or not 5.0 <= duration <= 10.0:
+            raise ValueError("duration_sec must be between 5 and 10 seconds")
+
+        glyph = _clean_line(self.glyph, "glyph", 4)
+        if len(glyph) != 1:
+            raise ValueError("glyph must be exactly one character")
+
+        object.__setattr__(self, "kicker", _clean_line(self.kicker, "kicker", 60))
+        object.__setattr__(self, "closing_lines", closing_lines)
+        object.__setattr__(self, "accent_line", accent_line)
+        object.__setattr__(self, "tagline", _clean_line(self.tagline, "tagline", 64))
+        object.__setattr__(
+            self, "brand_label", _clean_line(self.brand_label, "brand_label", 36)
+        )
+        object.__setattr__(self, "glyph", glyph)
+        object.__setattr__(self, "credit_lines", credit_lines)
+        object.__setattr__(
+            self, "cta_label", _clean_line(self.cta_label, "cta_label", 36)
+        )
+        object.__setattr__(self, "duration_sec", duration)
+        object.__setattr__(
+            self, "ground_color", _clean_color(self.ground_color, "ground_color")
+        )
+        object.__setattr__(self, "ink_color", _clean_color(self.ink_color, "ink_color"))
+        object.__setattr__(
+            self, "accent_color", _clean_color(self.accent_color, "accent_color")
+        )
+        object.__setattr__(
+            self,
+            "secondary_color",
+            _clean_color(self.secondary_color, "secondary_color"),
+        )
+        object.__setattr__(
+            self, "muted_color", _clean_color(self.muted_color, "muted_color")
+        )
+
+        if not self.kicker:
+            raise ValueError("kicker must not be empty")
+        if not self.brand_label:
+            raise ValueError("brand_label must not be empty")
+
+    @property
+    def closing_font_sizes(self) -> tuple[int, int, int]:
+        """Conservative per-line sizes for the centered 1500 px closing block."""
+
+        cap = 118 if len(self.closing_lines) == 1 else 108 if len(self.closing_lines) == 2 else 92
+        sizes: list[int] = []
+        for index in range(3):
+            if index >= len(self.closing_lines):
+                sizes.append(56)
+                continue
+            length = max(1, len(self.closing_lines[index]))
+            fitted = math.floor(1480 / (0.62 * length))
+            sizes.append(max(56, min(cap, fitted)))
+        return tuple(sizes)  # type: ignore[return-value]
+
+    def variables(self) -> dict[str, Any]:
+        """Return the complete HyperFrames variable payload."""
+
+        lines = list(self.closing_lines) + ["", "", ""]
+        credits = list(self.credit_lines) + ["", "", ""]
+        sizes = self.closing_font_sizes
+        return {
+            "kicker": self.kicker,
+            "closing_line_1": lines[0],
+            "closing_line_2": lines[1],
+            "closing_line_3": lines[2],
+            "accent_line": int(self.accent_line),
+            "closing_line_1_size": sizes[0],
+            "closing_line_2_size": sizes[1],
+            "closing_line_3_size": sizes[2],
+            "tagline": self.tagline,
+            "brand_label": self.brand_label,
+            "glyph": self.glyph,
+            "credit_count": len(self.credit_lines),
+            "credit_line_1": credits[0],
+            "credit_line_2": credits[1],
+            "credit_line_3": credits[2],
+            "cta_label": self.cta_label,
+            "ground_color": self.ground_color,
+            "ink_color": self.ink_color,
+            "accent_color": self.accent_color,
+            "secondary_color": self.secondary_color,
+            "muted_color": self.muted_color,
+        }
+
+    def variable_schema(self) -> list[dict[str, Any]]:
+        """Return the HyperFrames variable declarations for this build."""
+
+        values = self.variables()
+
+        def string_var(var_id: str, label: str) -> dict[str, Any]:
+            return {
+                "id": var_id,
+                "type": "string",
+                "label": label,
+                "default": values[var_id],
+            }
+
+        def number_var(var_id: str, label: str, minimum: int, maximum: int) -> dict[str, Any]:
+            return {
+                "id": var_id,
+                "type": "number",
+                "label": label,
+                "default": values[var_id],
+                "min": minimum,
+                "max": maximum,
+                "step": 1,
+            }
+
+        def color_var(var_id: str, label: str) -> dict[str, Any]:
+            return {
+                "id": var_id,
+                "type": "color",
+                "label": label,
+                "default": values[var_id],
+            }
+
+        return [
+            string_var("kicker", "Kicker"),
+            string_var("closing_line_1", "Closing line 1"),
+            string_var("closing_line_2", "Closing line 2"),
+            string_var("closing_line_3", "Closing line 3"),
+            number_var("accent_line", "Accent line", 1, 3),
+            number_var("closing_line_1_size", "Closing line 1 size", 56, 140),
+            number_var("closing_line_2_size", "Closing line 2 size", 56, 140),
+            number_var("closing_line_3_size", "Closing line 3 size", 56, 140),
+            string_var("tagline", "Tagline"),
+            string_var("brand_label", "Brand label"),
+            string_var("glyph", "Glyph"),
+            number_var("credit_count", "Credit count", 0, 3),
+            string_var("credit_line_1", "Credit line 1"),
+            string_var("credit_line_2", "Credit line 2"),
+            string_var("credit_line_3", "Credit line 3"),
+            string_var("cta_label", "CTA label"),
+            color_var("ground_color", "Ground color"),
+            color_var("ink_color", "Ink color"),
+            color_var("accent_color", "Accent color"),
+            color_var("secondary_color", "Secondary color"),
+            color_var("muted_color", "Muted color"),
+        ]
+
+
+@dataclass(frozen=True)
 class BuiltProject:
     """Paths and variables for a generated HyperFrames project."""
 
@@ -1590,6 +1821,76 @@ def _render_quote_index_html(request: QuoteBuildRequest, project_title: str) -> 
 """
 
 
+def _render_outro_index_html(request: OutroBuildRequest, project_title: str) -> str:
+    duration = _format_seconds(request.duration_sec)
+    values = request.variables()
+    stage_values = {key: values[key] for key in OUTRO_STAGE_VARIABLE_IDS}
+    text_values = {key: values[key] for key in OUTRO_TEXT_VARIABLE_IDS}
+    schema_attr = _json_attr(request.variable_schema())
+    stage_attr = _json_attr(stage_values)
+    text_attr = _json_attr(text_values)
+    escaped_title = html.escape(project_title, quote=True)
+
+    return f"""<!doctype html>
+<html lang="en" data-composition-variables='{schema_attr}'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>{escaped_title}</title>
+    <script src="assets/lib/gsap.min.js"></script>
+    <style>
+      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+      html, body {{ width: 1920px; height: 1080px; overflow: hidden; background: {request.ground_color}; }}
+      body {{ font-family: Inter, Arial, sans-serif; }}
+      #root {{ position: relative; width: 1920px; height: 1080px; overflow: hidden; background: {request.ground_color}; }}
+      [data-composition-id="outro-stage"], [data-composition-id="outro-text"] {{ position: absolute; inset: 0; }}
+      [data-composition-id="outro-stage"] {{ z-index: 1; }}
+      [data-composition-id="outro-text"] {{ z-index: 2; }}
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="{duration}"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="outro-stage"
+        data-composition-id="outro-stage"
+        data-composition-src="compositions/outro-stage.html"
+        data-start="0"
+        data-duration="{duration}"
+        data-track-index="0"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+        data-variable-values='{stage_attr}'
+      ></div>
+      <div
+        id="outro-text"
+        data-composition-id="outro-text"
+        data-composition-src="compositions/outro-text.html"
+        data-start="0"
+        data-duration="{duration}"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+        data-variable-values='{text_attr}'
+      ></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      window.__timelines["main"] = gsap.timeline({{ paused: true }});
+    </script>
+  </body>
+</html>
+"""
+
+
 def _template_timing_values(request: TitleBuildRequest) -> dict[str, str]:
     duration = request.duration_sec
     return {
@@ -1634,6 +1935,17 @@ def _quote_template_timing_values(request: QuoteBuildRequest) -> dict[str, str]:
         "__RESPONSE_DURATION__": _format_seconds(duration * 0.48),
         "__CONTEXT_START__": _format_seconds(duration * 0.24),
         "__CONTEXT_DURATION__": _format_seconds(duration * 0.76),
+    }
+
+
+def _outro_template_timing_values(request: OutroBuildRequest) -> dict[str, str]:
+    duration = request.duration_sec
+    return {
+        "__DURATION__": _format_seconds(duration),
+        "__CREDITS_START__": _format_seconds(duration * 0.45),
+        "__CREDITS_DURATION__": _format_seconds(duration * 0.55),
+        "__CTA_START__": _format_seconds(duration * 0.58),
+        "__CTA_DURATION__": _format_seconds(duration * 0.42),
     }
 
 
@@ -2101,6 +2413,60 @@ def build_quote_project(
     )
 
 
+def build_outro_project(
+    request: OutroBuildRequest | Mapping[str, Any] | None,
+    output_dir: str | Path,
+    *,
+    library_dir: str | Path | None = None,
+    overwrite: bool = False,
+) -> BuiltProject:
+    """Generate a self-contained HyperFrames Outro/closing-card project."""
+
+    if request is None:
+        build_request = OutroBuildRequest()
+    elif isinstance(request, OutroBuildRequest):
+        build_request = request
+    elif isinstance(request, Mapping):
+        build_request = OutroBuildRequest(**dict(request))
+    else:
+        raise TypeError("request must be OutroBuildRequest, a mapping, or None")
+
+    stage_template = OUTRO_TEMPLATE_DIR / "compositions" / "outro-stage.html.tmpl"
+    text_template = OUTRO_TEMPLATE_DIR / "compositions" / "outro-text.html.tmpl"
+    missing = [
+        str(path) for path in (stage_template, text_template) if not path.is_file()
+    ]
+    if missing:
+        raise FileNotFoundError("missing Outro template assets: " + ", ".join(missing))
+
+    tokens = _outro_template_timing_values(build_request)
+    project_title = " ".join(build_request.closing_lines)
+    return _build_project_from_parts(
+        output_dir=output_dir,
+        library_dir=library_dir,
+        overwrite=overwrite,
+        project_title=project_title,
+        index_html=_render_outro_index_html(build_request, project_title),
+        rendered_files=(
+            (
+                "compositions/outro-stage.html",
+                _render_template_with_tokens(stage_template, tokens),
+            ),
+            (
+                "compositions/outro-text.html",
+                _render_template_with_tokens(text_template, tokens),
+            ),
+        ),
+        variables=build_request.variables(),
+        template_name="outro",
+        request_payload=asdict(build_request),
+        variable_groups={
+            "stage": OUTRO_STAGE_VARIABLE_IDS,
+            "text": OUTRO_TEXT_VARIABLE_IDS,
+        },
+    )
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build a local HyperFrames motion-graphics template project."
@@ -2108,7 +2474,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Generated project directory")
     parser.add_argument(
         "--template",
-        choices=("title", "data", "shape", "quote"),
+        choices=("title", "data", "shape", "quote", "outro"),
         default="title",
         help="Template to build (default: title, for backward compatibility)",
     )
@@ -2155,6 +2521,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     quote_group.add_argument("--response-speaker")
     quote_group.add_argument("--response-line")
     quote_group.add_argument("--context-line")
+
+    outro_group = parser.add_argument_group("Outro template")
+    outro_group.add_argument("--outro-line", action="append", dest="closing_lines")
+    outro_group.add_argument("--tagline")
+    outro_group.add_argument("--brand-label")
+    outro_group.add_argument("--credit-line", action="append", dest="credit_lines")
+    outro_group.add_argument("--cta-label")
     return parser.parse_args(argv)
 
 
@@ -2243,6 +2616,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             overwrite=args.overwrite,
         )
         print(f"Built Quote project: {result.output_dir}")
+    elif args.template == "outro":
+        for field in (
+            "closing_lines",
+            "accent_line",
+            "tagline",
+            "brand_label",
+            "glyph",
+            "credit_lines",
+            "cta_label",
+        ):
+            value = getattr(args, field)
+            if value is not None:
+                payload[field] = value
+
+        result = build_outro_project(
+            payload,
+            args.output,
+            library_dir=args.library_dir,
+            overwrite=args.overwrite,
+        )
+        print(f"Built Outro project: {result.output_dir}")
     else:
         for field in (
             "title_lines",

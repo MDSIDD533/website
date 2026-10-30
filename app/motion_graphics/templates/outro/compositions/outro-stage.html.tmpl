@@ -1,0 +1,253 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #0a0a0f;
+    }
+    #outro-stage-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <div
+    id="root"
+    data-composition-id="outro-stage"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"ground_color","type":"color","label":"Ground color","default":"#0a0a0f"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"},{"id":"muted_color","type":"color","label":"Muted color","default":"#8b98a8"}]'
+  >
+    <canvas id="outro-stage-canvas" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="0"></canvas>
+  </div>
+  <script src="assets/lib/three.min.js"></script>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        ground_color: "#0a0a0f",
+        accent_color: "#d4af37",
+        secondary_color: "#4a90d9",
+        muted_color: "#8b98a8",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      const seg = (t, a, b) => clamp01((t - a) / (b - a));
+      const easeOut = (v) => 1 - Math.pow(1 - clamp01(v), 3);
+      const lerp = (a, b, v) => a + (b - a) * v;
+      const hash = (i) => {
+        const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      const ground = new THREE.Color(vars.ground_color);
+      const accent = new THREE.Color(vars.accent_color);
+      const secondary = new THREE.Color(vars.secondary_color);
+      const muted = new THREE.Color(vars.muted_color);
+
+      const canvas = document.getElementById("outro-stage-canvas");
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: false,
+        powerPreference: "high-performance",
+      });
+      renderer.setPixelRatio(1);
+      renderer.setSize(1920, 1080, false);
+      renderer.setClearColor(ground, 1);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.08;
+
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(ground, 0.018);
+      const camera = new THREE.PerspectiveCamera(42, 1920 / 1080, 0.1, 120);
+
+      scene.add(new THREE.AmbientLight(0x33415e, 1.5));
+      const key = new THREE.DirectionalLight(0xffe2a8, 1.8);
+      key.position.set(-5, 6, 7);
+      scene.add(key);
+
+      const floorGrid = new THREE.GridHelper(30, 60, 0x16283f, 0x0d1622);
+      floorGrid.position.set(0, -2.18, -5);
+      floorGrid.material.transparent = true;
+      floorGrid.material.opacity = 0.12;
+      scene.add(floorGrid);
+
+      function makeRadialSprite(scale) {
+        const c = document.createElement("canvas");
+        c.width = c.height = 256;
+        const ctx = c.getContext("2d");
+        const grad = ctx.createRadialGradient(128, 128, 4, 128, 128, 128);
+        grad.addColorStop(0, "rgba(255,224,138,0.38)");
+        grad.addColorStop(0.36, "rgba(74,144,217,0.14)");
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            opacity: 0,
+          }),
+        );
+        sprite.scale.set(scale, scale, 1);
+        return sprite;
+      }
+
+      const finaleGlow = makeRadialSprite(7.4);
+      finaleGlow.position.set(0, 0, -10.8);
+      scene.add(finaleGlow);
+
+      const finaleDiscMaterial = new THREE.MeshBasicMaterial({
+        color: accent,
+        transparent: true,
+        opacity: 0,
+        side: THREE.DoubleSide,
+      });
+      const finaleDisc = new THREE.Mesh(
+        new THREE.CircleGeometry(0.62, 64),
+        finaleDiscMaterial,
+      );
+      finaleDisc.position.set(0, 0, -10.7);
+      scene.add(finaleDisc);
+
+      const finaleRingMaterial = new THREE.MeshBasicMaterial({
+        color: secondary,
+        transparent: true,
+        opacity: 0,
+      });
+      const finaleRing = new THREE.Mesh(
+        new THREE.TorusGeometry(0.86, 0.018, 10, 120),
+        finaleRingMaterial,
+      );
+      finaleRing.position.copy(finaleDisc.position);
+      scene.add(finaleRing);
+
+      const portal = new THREE.Group();
+      scene.add(portal);
+      const frameEntries = [];
+      {
+        const frameW = 6.4;
+        const frameH = 3.6;
+        const bar = 0.035;
+        const hGeo = new THREE.BoxGeometry(frameW, bar, bar);
+        const vGeo = new THREE.BoxGeometry(bar, frameH, bar);
+        for (let i = 0; i < 9; i++) {
+          const depth = i / 8;
+          const base = i % 3 === 0 ? accent : i % 3 === 1 ? secondary : muted;
+          const material = new THREE.MeshBasicMaterial({
+            color: base.clone().lerp(ground, depth * 0.18),
+            transparent: true,
+            opacity: 0,
+          });
+          const frame = new THREE.Group();
+          frame.position.z = 1.6 - i * 1.35;
+          const top = new THREE.Mesh(hGeo, material);
+          top.position.y = frameH / 2;
+          const bottom = new THREE.Mesh(hGeo, material);
+          bottom.position.y = -frameH / 2;
+          const left = new THREE.Mesh(vGeo, material);
+          left.position.x = -frameW / 2;
+          const right = new THREE.Mesh(vGeo, material);
+          right.position.x = frameW / 2;
+          frame.add(top, bottom, left, right);
+          portal.add(frame);
+          frameEntries.push({ material, depth, baseOpacity: 0.74 - depth * 0.4 });
+        }
+      }
+
+      const railMaterial = new THREE.MeshBasicMaterial({
+        color: muted,
+        transparent: true,
+        opacity: 0,
+      });
+      {
+        const railGeo = new THREE.BoxGeometry(0.024, 0.024, 12.4);
+        [
+          [-3.2, -1.8],
+          [3.2, -1.8],
+          [-3.2, 1.8],
+          [3.2, 1.8],
+        ].forEach(([x, y]) => {
+          const rail = new THREE.Mesh(railGeo, railMaterial);
+          rail.position.set(x, y, -3.8);
+          portal.add(rail);
+        });
+      }
+
+      let particleMaterial;
+      {
+        const n = 520;
+        const pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          pos[i * 3] = (hash(i + 11) - 0.5) * 11;
+          pos[i * 3 + 1] = (hash(i + 41) - 0.5) * 6.4;
+          pos[i * 3 + 2] = 1.6 - hash(i + 83) * 13;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        particleMaterial = new THREE.PointsMaterial({
+          color: 0x6f91b8,
+          size: 0.035,
+          transparent: true,
+          opacity: 0,
+        });
+        scene.add(new THREE.Points(geometry, particleMaterial));
+      }
+
+      function renderAt(rawT) {
+        const t = Math.max(0, Math.min(DURATION, Number(rawT) || 0));
+        const u = DURATION > 0 ? t / DURATION : 0;
+
+        const push = easeOut(seg(u, 0, 0.72));
+        camera.position.set(
+          Math.sin(t * 0.24) * 0.08,
+          lerp(0.28, 0.04, push),
+          lerp(9.4, 7.65, push),
+        );
+        camera.lookAt(0, 0, -4);
+        portal.position.z = push * 0.45;
+
+        const finale = easeOut(seg(u, 0.56, 0.78));
+        const finalDim = 1 - 0.16 * seg(u, 0.9, 1);
+        frameEntries.forEach((entry) => {
+          const local = easeOut(seg(u, 0.03 + entry.depth * 0.16, 0.24 + entry.depth * 0.16));
+          entry.material.opacity = entry.baseOpacity * local * finalDim;
+        });
+        railMaterial.opacity = 0.16 * easeOut(seg(u, 0.08, 0.3)) * finalDim;
+        particleMaterial.opacity = 0.52 * easeOut(seg(u, 0.04, 0.28));
+        finaleGlow.material.opacity = (0.16 + 0.5 * finale) * finalDim;
+        finaleDiscMaterial.opacity = (0.03 + 0.08 * finale) * finalDim;
+        finaleRingMaterial.opacity = (0.18 + 0.42 * finale) * finalDim;
+        const ringScale = 0.9 + 0.16 * finale + Math.sin(t * 0.7) * 0.006;
+        finaleRing.scale.set(ringScale, ringScale, ringScale);
+        finaleRing.rotation.z = t * 0.035;
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener("hf-seek", (e) => renderAt(e.detail.time));
+      window.__hfThreeRender = () => renderAt(window.__hfThreeTime || 0);
+      renderAt(0);
+
+      const tl = gsap.timeline({ paused: true });
+      tl.to({ v: 0 }, { v: 1, duration: DURATION, ease: "none" }, 0);
+      window.__timelines["outro-stage"] = tl;
+    })();
+  </script>
+</template>
