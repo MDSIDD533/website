@@ -1,0 +1,321 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      color: var(--ink_color, #ffffff);
+      font-family: Inter, Arial, sans-serif;
+    }
+    .data-clip {
+      position: absolute;
+    }
+    .data-anim {
+      opacity: 0;
+    }
+    #data-copy {
+      left: 110px;
+      top: 104px;
+      width: 800px;
+    }
+    #data-kicker {
+      color: var(--accent_color, #d4af37);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.85);
+    }
+    #data-headline {
+      margin-top: 20px;
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      font-weight: 900;
+      line-height: 0.99;
+      letter-spacing: -0.04em;
+      text-transform: uppercase;
+      text-shadow: 0 8px 38px rgba(0, 0, 0, 0.72);
+    }
+    .data-headline-line {
+      display: block;
+      white-space: nowrap;
+    }
+    #data-hero {
+      left: 108px;
+      top: 402px;
+      width: 790px;
+    }
+    #data-hero-point {
+      color: var(--secondary_color, #4a90d9);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+    #data-hero-number {
+      color: var(--accent_color, #d4af37);
+      font-size: 238px;
+      font-weight: 900;
+      line-height: 0.92;
+      letter-spacing: -0.06em;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+      text-shadow: 0 10px 46px rgba(0, 0, 0, 0.72);
+    }
+    #data-hero-caption {
+      margin-top: 10px;
+      font-size: 38px;
+      line-height: 1.22;
+      font-weight: 700;
+      color: var(--ink_color, #ffffff);
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.85);
+    }
+    #data-comparison {
+      left: 112px;
+      top: 748px;
+      width: 740px;
+    }
+    #data-comparison .data-anim {
+      font-size: 39px;
+      line-height: 1.25;
+      font-weight: 700;
+      color: var(--ink_color, #ffffff);
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.85);
+    }
+    #data-closing {
+      left: 112px;
+      top: 868px;
+      width: 760px;
+    }
+    #data-closing .data-anim {
+      font-size: 34px;
+      line-height: 1.3;
+      color: var(--ink_color, #ffffff);
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.85);
+    }
+    #data-source {
+      left: 112px;
+      top: 1002px;
+      width: 1640px;
+    }
+    #data-source .data-anim {
+      color: var(--ink_color, #ffffff);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      white-space: nowrap;
+      opacity: 0;
+      text-shadow: 0 3px 16px rgba(0, 0, 0, 0.9);
+    }
+  </style>
+  <div
+    id="root"
+    class="data-text-root"
+    data-composition-id="data-text"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"kicker","type":"string","label":"Kicker","default":"LOCAL PIPELINE · TEMPLATE 02"},{"id":"headline_line_1","type":"string","label":"Headline line 1","default":"WHERE THE"},{"id":"headline_line_2","type":"string","label":"Headline line 2","default":"TIME GOES"},{"id":"headline_line_1_size","type":"number","label":"Headline line 1 size","default":92,"min":56,"max":120,"step":1},{"id":"headline_line_2_size","type":"number","label":"Headline line 2 size","default":92,"min":56,"max":120,"step":1},{"id":"point_count","type":"number","label":"Point count","default":3,"min":2,"max":4,"step":1},{"id":"point_1_label","type":"string","label":"Point 1 label","default":"CAPTURE"},{"id":"point_1_value","type":"number","label":"Point 1 value","default":62,"min":0,"max":124,"step":1},{"id":"point_2_label","type":"string","label":"Point 2 label","default":"ENCODE"},{"id":"point_2_value","type":"number","label":"Point 2 value","default":24,"min":0,"max":124,"step":1},{"id":"point_3_label","type":"string","label":"Point 3 label","default":"SETUP"},{"id":"point_3_value","type":"number","label":"Point 3 value","default":14,"min":0,"max":124,"step":1},{"id":"point_4_label","type":"string","label":"Point 4 label","default":""},{"id":"point_4_value","type":"number","label":"Point 4 value","default":0,"min":0,"max":124,"step":1},{"id":"highlight_point","type":"number","label":"Highlight point","default":1,"min":1,"max":4,"step":1},{"id":"unit","type":"string","label":"Value unit","default":"%"},{"id":"value_decimals","type":"number","label":"Value decimals","default":0,"min":0,"max":3,"step":1},{"id":"hero_caption","type":"string","label":"Hero caption","default":"of this illustrative workload is capture"},{"id":"comparison_line","type":"string","label":"Comparison line","default":"Encoding follows at 24%."},{"id":"closing_line","type":"string","label":"Closing line","default":"Setup stays small after warm-up."},{"id":"source_line","type":"string","label":"Source line","default":"Illustrative sample data"},{"id":"ink_color","type":"color","label":"Ink color","default":"#ffffff"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"}]'
+  >
+    <div id="data-copy" class="data-clip clip" data-start="0" data-duration="__DURATION__" data-track-index="0">
+      <div id="data-copy-anim" class="data-anim">
+        <div id="data-kicker" data-var-text="kicker">LOCAL PIPELINE · TEMPLATE 02</div>
+        <h1 id="data-headline">
+          <span id="data-headline-1" class="data-headline-line" data-var-text="headline_line_1">WHERE THE</span>
+          <span id="data-headline-2" class="data-headline-line" data-var-text="headline_line_2">TIME GOES</span>
+        </h1>
+      </div>
+    </div>
+    <div
+      id="data-hero"
+      class="data-clip clip"
+      data-start="__HERO_START__"
+      data-duration="__HERO_DURATION__"
+      data-track-index="1"
+    >
+      <div id="data-hero-anim" class="data-anim">
+        <div id="data-hero-point">CAPTURE</div>
+        <div id="data-hero-number">0%</div>
+        <div id="data-hero-caption" data-var-text="hero_caption">of this illustrative workload is capture</div>
+      </div>
+    </div>
+    <div
+      id="data-comparison"
+      class="data-clip clip"
+      data-start="__COMPARISON_START__"
+      data-duration="__COMPARISON_DURATION__"
+      data-track-index="2"
+    >
+      <div id="data-comparison-anim" class="data-anim" data-var-text="comparison_line">Encoding follows at 24%.</div>
+    </div>
+    <div
+      id="data-closing"
+      class="data-clip clip"
+      data-start="__CLOSING_START__"
+      data-duration="__CLOSING_DURATION__"
+      data-track-index="3"
+    >
+      <div id="data-closing-anim" class="data-anim" data-var-text="closing_line">Setup stays small after warm-up.</div>
+    </div>
+    <div id="data-source" class="data-clip clip" data-start="0" data-duration="__DURATION__" data-track-index="4">
+      <div id="data-source-anim" class="data-anim" data-var-text="source_line">Illustrative sample data</div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        headline_line_1: "WHERE THE",
+        headline_line_2: "TIME GOES",
+        headline_line_1_size: 92,
+        headline_line_2_size: 92,
+        point_count: 3,
+        point_1_label: "CAPTURE",
+        point_1_value: 62,
+        point_2_label: "ENCODE",
+        point_2_value: 24,
+        point_3_label: "SETUP",
+        point_3_value: 14,
+        point_4_label: "",
+        point_4_value: 0,
+        highlight_point: 1,
+        unit: "%",
+        value_decimals: 0,
+        comparison_line: "Encoding follows at 24%.",
+        closing_line: "Setup stays small after warm-up.",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+
+      const headlineIds = ["data-headline-1", "data-headline-2"];
+      const headlineKeys = ["headline_line_1", "headline_line_2"];
+      headlineIds.forEach((id, index) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        const text = String(vars[headlineKeys[index]] ?? "");
+        const requested = Number(vars[`${headlineKeys[index]}_size`]) || 92;
+        const fitted = Math.floor(790 / (0.68 * Math.max(1, Array.from(text).length)));
+        element.style.display = text.trim() ? "block" : "none";
+        element.style.fontSize = `${Math.max(56, Math.min(requested, fitted))}px`;
+      });
+
+      const requestedCount = Math.max(2, Math.min(4, Math.round(Number(vars.point_count) || 3)));
+      const points = [];
+      for (let i = 1; i <= requestedCount; i++) {
+        const label = String(vars[`point_${i}_label`] || "").trim();
+        if (label) {
+          points.push({ label, value: Math.max(0, Number(vars[`point_${i}_value`]) || 0) });
+        }
+      }
+      const fallbackPoints = [
+        { label: defaults.point_1_label, value: defaults.point_1_value },
+        { label: defaults.point_2_label, value: defaults.point_2_value },
+      ];
+      const safePoints = points.length ? points : fallbackPoints;
+      const highlightIndex = Math.max(
+        0,
+        Math.min(safePoints.length - 1, Math.round(Number(vars.highlight_point) || 1) - 1),
+      );
+      const highlight = safePoints[highlightIndex] || safePoints[0];
+      const decimals = Math.max(0, Math.min(3, Math.round(Number(vars.value_decimals) || 0)));
+      const formatter = new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+      const formatValue = (value) => `${formatter.format(value)}${String(vars.unit || "")}`;
+
+      const heroPoint = document.getElementById("data-hero-point");
+      if (heroPoint) heroPoint.textContent = highlight.label.toUpperCase();
+      const heroNumber = document.getElementById("data-hero-number");
+      if (heroNumber) {
+        const finalText = formatValue(highlight.value);
+        const fitted = Math.floor(760 / (0.58 * Math.max(1, Array.from(finalText).length)));
+        heroNumber.style.fontSize = `${Math.max(96, Math.min(238, fitted))}px`;
+        heroNumber.textContent = formatValue(0);
+      }
+
+      const comparison = document.getElementById("data-comparison");
+      if (comparison && !String(vars.comparison_line || "").trim()) {
+        comparison.style.display = "none";
+      }
+      const closing = document.getElementById("data-closing");
+      if (closing && !String(vars.closing_line || "").trim()) {
+        closing.style.display = "none";
+      }
+
+      const at = (fraction) => Math.max(0, fraction * DURATION);
+      const span = (fraction) => Math.max(0.18, fraction * DURATION);
+      const exitAt = Math.max(at(0.78), DURATION - 0.44);
+      const exitSpan = Math.min(0.36, Math.max(0.18, DURATION - exitAt - 0.04));
+      const counter = { value: 0 };
+
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo(
+        "#data-copy-anim",
+        { opacity: 0, x: -90 },
+        { opacity: 1, x: 0, duration: span(0.08), ease: "power4.out" },
+        at(0.025),
+      );
+      tl.fromTo(
+        "#data-hero-anim",
+        { opacity: 0, y: 54, scale: 0.96 },
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          duration: span(0.075),
+          ease: "power4.out",
+          transformOrigin: "0% 50%",
+        },
+        at(0.105),
+      );
+      tl.to(
+        counter,
+        {
+          value: highlight.value,
+          duration: span(0.2),
+          ease: "power3.out",
+          onUpdate: () => {
+            const element = document.getElementById("data-hero-number");
+            if (element) element.textContent = formatValue(counter.value);
+          },
+        },
+        at(0.14),
+      );
+      tl.fromTo(
+        "#data-comparison-anim",
+        { opacity: 0, y: 34 },
+        { opacity: 1, y: 0, duration: span(0.062), ease: "power3.out" },
+        at(0.42),
+      );
+      tl.fromTo(
+        "#data-closing-anim",
+        { opacity: 0, y: 34 },
+        { opacity: 1, y: 0, duration: span(0.062), ease: "power3.out" },
+        at(0.6),
+      );
+      tl.fromTo(
+        "#data-source-anim",
+        { opacity: 0 },
+        { opacity: 0.78, duration: span(0.055), ease: "power2.out" },
+        at(0.22),
+      );
+      tl.to(
+        [
+          "#data-copy-anim",
+          "#data-hero-anim",
+          "#data-comparison-anim",
+          "#data-closing-anim",
+          "#data-source-anim",
+        ],
+        { opacity: 0, y: -18, filter: "blur(6px)", duration: exitSpan, ease: "power3.in" },
+        exitAt,
+      );
+      window.__timelines["data-text"] = tl;
+    })();
+  </script>
+</template>

@@ -1,0 +1,330 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #0a0a0f;
+    }
+    #data-stage-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <div
+    id="root"
+    data-composition-id="data-stage"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"point_count","type":"number","label":"Point count","default":3,"min":2,"max":4,"step":1},{"id":"point_1_label","type":"string","label":"Point 1 label","default":"CAPTURE"},{"id":"point_1_value","type":"number","label":"Point 1 value","default":62,"min":0,"max":124,"step":1},{"id":"point_2_label","type":"string","label":"Point 2 label","default":"ENCODE"},{"id":"point_2_value","type":"number","label":"Point 2 value","default":24,"min":0,"max":124,"step":1},{"id":"point_3_label","type":"string","label":"Point 3 label","default":"SETUP"},{"id":"point_3_value","type":"number","label":"Point 3 value","default":14,"min":0,"max":124,"step":1},{"id":"point_4_label","type":"string","label":"Point 4 label","default":""},{"id":"point_4_value","type":"number","label":"Point 4 value","default":0,"min":0,"max":124,"step":1},{"id":"highlight_point","type":"number","label":"Highlight point","default":1,"min":1,"max":4,"step":1},{"id":"unit","type":"string","label":"Value unit","default":"%"},{"id":"value_decimals","type":"number","label":"Value decimals","default":0,"min":0,"max":3,"step":1},{"id":"ground_color","type":"color","label":"Ground color","default":"#0a0a0f"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"},{"id":"muted_color","type":"color","label":"Muted color","default":"#8b98a8"}]'
+  >
+    <canvas id="data-stage-canvas" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="0"></canvas>
+  </div>
+  <script src="assets/lib/three.min.js"></script>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        point_count: 3,
+        point_1_label: "CAPTURE",
+        point_1_value: 62,
+        point_2_label: "ENCODE",
+        point_2_value: 24,
+        point_3_label: "SETUP",
+        point_3_value: 14,
+        point_4_label: "",
+        point_4_value: 0,
+        highlight_point: 1,
+        unit: "%",
+        value_decimals: 0,
+        ground_color: "#0a0a0f",
+        accent_color: "#d4af37",
+        secondary_color: "#4a90d9",
+        muted_color: "#8b98a8",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      const seg = (t, a, b) => clamp01((t - a) / (b - a));
+      const smooth = (v) => {
+        v = clamp01(v);
+        return v * v * (3 - 2 * v);
+      };
+      const easeOut = (v) => 1 - Math.pow(1 - clamp01(v), 3);
+      const lerp = (a, b, v) => a + (b - a) * v;
+      const hash = (i) => {
+        const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+        return x - Math.floor(x);
+      };
+      const decimals = Math.max(0, Math.min(3, Math.round(Number(vars.value_decimals) || 0)));
+      const formatter = new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals,
+      });
+      const formatValue = (value) => `${formatter.format(Number(value) || 0)}${String(vars.unit || "")}`;
+
+      const requestedCount = Math.max(2, Math.min(4, Math.round(Number(vars.point_count) || 3)));
+      const points = [];
+      for (let i = 1; i <= requestedCount; i++) {
+        const label = String(vars[`point_${i}_label`] || "").trim();
+        if (!label) continue;
+        points.push({ label, value: Math.max(0, Number(vars[`point_${i}_value`]) || 0), index: i });
+      }
+      if (points.length < 2) {
+        points.splice(0, points.length,
+          { label: defaults.point_1_label, value: defaults.point_1_value, index: 1 },
+          { label: defaults.point_2_label, value: defaults.point_2_value, index: 2 },
+          { label: defaults.point_3_label, value: defaults.point_3_value, index: 3 },
+        );
+      }
+      const highlightPoint = Math.max(1, Math.min(points.length, Math.round(Number(vars.highlight_point) || 1)));
+      const maxValue = Math.max(...points.map((point) => point.value), 0.001);
+
+      const ground = new THREE.Color(vars.ground_color);
+      const accent = new THREE.Color(vars.accent_color);
+      const secondary = new THREE.Color(vars.secondary_color);
+      const muted = new THREE.Color(vars.muted_color);
+
+      const canvas = document.getElementById("data-stage-canvas");
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: false,
+        powerPreference: "high-performance",
+      });
+      renderer.setPixelRatio(1);
+      renderer.setSize(1920, 1080, false);
+      renderer.setClearColor(ground, 1);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.08;
+
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(ground, 0.026);
+      const camera = new THREE.PerspectiveCamera(42, 1920 / 1080, 0.1, 100);
+
+      scene.add(new THREE.AmbientLight(0x33415e, 1.65));
+      const key = new THREE.DirectionalLight(0xffe2a8, 2.5);
+      key.position.set(-5, 6, 7);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(secondary, 1.8);
+      rim.position.set(6, 2, -5);
+      scene.add(rim);
+      const chartLight = new THREE.PointLight(accent, 4.5, 9, 1.8);
+      chartLight.position.set(2.4, 1.3, 2.4);
+      scene.add(chartLight);
+
+      const floorGrid = new THREE.GridHelper(24, 48, 0x16283f, 0x0d1622);
+      floorGrid.position.y = -2.58;
+      floorGrid.material.transparent = true;
+      floorGrid.material.opacity = 0.15;
+      scene.add(floorGrid);
+
+      {
+        const ec = document.createElement("canvas");
+        ec.width = 1024;
+        ec.height = 512;
+        const ex = ec.getContext("2d");
+        const lg = ex.createLinearGradient(0, 0, 0, 512);
+        lg.addColorStop(0, "#2a3648");
+        lg.addColorStop(0.45, "#0d1420");
+        lg.addColorStop(1, "#05070c");
+        ex.fillStyle = lg;
+        ex.fillRect(0, 0, 1024, 512);
+        let rg = ex.createRadialGradient(300, 170, 10, 300, 170, 280);
+        rg.addColorStop(0, "rgba(255,230,170,0.9)");
+        rg.addColorStop(1, "rgba(255,230,170,0)");
+        ex.fillStyle = rg;
+        ex.fillRect(0, 0, 1024, 512);
+        rg = ex.createRadialGradient(770, 205, 10, 770, 205, 320);
+        rg.addColorStop(0, "rgba(120,180,255,0.45)");
+        rg.addColorStop(1, "rgba(120,180,255,0)");
+        ex.fillStyle = rg;
+        ex.fillRect(0, 0, 1024, 512);
+        const etex = new THREE.CanvasTexture(ec);
+        etex.mapping = THREE.EquirectangularReflectionMapping;
+        etex.colorSpace = THREE.SRGBColorSpace;
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromEquirectangular(etex).texture;
+        etex.dispose();
+        pmrem.dispose();
+      }
+
+      {
+        const n = 480;
+        const pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          const r = 11 + hash(i + 9) * 9;
+          const th = hash(i + 31) * Math.PI * 2;
+          const ph = Math.acos(2 * hash(i + 77) - 1);
+          pos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+          pos[i * 3 + 1] = r * Math.cos(ph) * 0.55;
+          pos[i * 3 + 2] = -Math.abs(r * Math.sin(ph) * Math.sin(th)) - 3;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        scene.add(
+          new THREE.Points(
+            geometry,
+            new THREE.PointsMaterial({
+              color: 0x54749c,
+              size: 0.035,
+              transparent: true,
+              opacity: 0.58,
+            }),
+          ),
+        );
+      }
+
+      function makeTextSprite(text, color, scaleX, scaleY) {
+        const c = document.createElement("canvas");
+        c.width = 640;
+        c.height = 192;
+        const ctx = c.getContext("2d");
+        ctx.clearRect(0, 0, 640, 192);
+        let fontSize = 78;
+        ctx.font = `900 ${fontSize}px Inter, Arial, sans-serif`;
+        const measured = ctx.measureText(text).width;
+        if (measured > 600) {
+          fontSize = Math.max(42, Math.floor(fontSize * (600 / measured)));
+          ctx.font = `900 ${fontSize}px Inter, Arial, sans-serif`;
+        }
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = "rgba(0,0,0,0.75)";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = color;
+        ctx.fillText(text, 320, 100);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        const sprite = new THREE.Sprite(
+          new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0 }),
+        );
+        sprite.scale.set(scaleX, scaleY, 1);
+        return sprite;
+      }
+
+      const chartGroup = new THREE.Group();
+      const chartBars = [];
+      const guideMaterials = [];
+      {
+        const spacing = points.length === 4 ? 1.22 : 1.45;
+        const baseWidth = Math.max(3.7, (points.length - 1) * spacing + 1.85);
+        const maxHeight = 3.15;
+        const base = new THREE.Mesh(
+          new THREE.BoxGeometry(baseWidth, 0.12, 1.25),
+          new THREE.MeshStandardMaterial({ color: 0x182438, metalness: 0.35, roughness: 0.5 }),
+        );
+        base.position.set(0, -0.06, 0);
+        chartGroup.add(base);
+
+        [0.25, 0.5, 0.75, 1].forEach((fraction) => {
+          const material = new THREE.MeshBasicMaterial({
+            color: secondary,
+            transparent: true,
+            opacity: 0,
+          });
+          guideMaterials.push(material);
+          const guide = new THREE.Mesh(
+            new THREE.BoxGeometry(baseWidth, 0.018, 0.018),
+            material,
+          );
+          guide.position.set(0, maxHeight * fraction, -0.56);
+          chartGroup.add(guide);
+        });
+
+        let nonHighlightOrdinal = 0;
+        points.forEach((point, i) => {
+          const isHighlight = i + 1 === highlightPoint;
+          let color;
+          if (isHighlight) {
+            color = accent;
+          } else if (nonHighlightOrdinal === 0) {
+            color = secondary;
+            nonHighlightOrdinal++;
+          } else if (nonHighlightOrdinal === 1) {
+            color = muted;
+            nonHighlightOrdinal++;
+          } else {
+            color = secondary.clone().lerp(new THREE.Color(0xffffff), 0.22);
+            nonHighlightOrdinal++;
+          }
+
+          const x = (i - (points.length - 1) / 2) * spacing;
+          const geo = new THREE.BoxGeometry(0.82, 1, 0.82);
+          geo.translate(0, 0.5, 0);
+          const bar = new THREE.Mesh(
+            geo,
+            new THREE.MeshStandardMaterial({
+              color,
+              emissive: isHighlight ? accent.clone().multiplyScalar(0.08) : 0x000000,
+              metalness: 0.55,
+              roughness: 0.32,
+            }),
+          );
+          bar.position.set(x, 0, 0);
+          bar.scale.y = 0.001;
+          chartGroup.add(bar);
+
+          const label = makeTextSprite(
+            `${point.label} ${formatValue(point.value)}`,
+            isHighlight ? "#ffe08a" : "#dbeafe",
+            1.78,
+            0.44,
+          );
+          label.position.set(x, 0.36, 0.62);
+          chartGroup.add(label);
+          chartBars.push({ bar, label, height: (point.value / maxValue) * maxHeight });
+        });
+        chartGroup.position.set(1.74, -1.82, 0.1);
+      }
+      scene.add(chartGroup);
+
+      function renderAt(rawT) {
+        const t = Math.max(0, Math.min(DURATION, Number(rawT) || 0));
+        const u = DURATION > 0 ? t / DURATION : 0;
+
+        const cameraPush = easeOut(seg(u, 0, 0.55));
+        camera.position.set(0, lerp(0.34, 0.18, cameraPush), lerp(8.9, 8.15, cameraPush));
+        camera.lookAt(0, 0, 0);
+
+        const chartIn = easeOut(seg(u, 0.07, 0.2));
+        const chartScale = Math.max(0.0001, chartIn);
+        chartGroup.scale.set(chartScale, chartScale, chartScale);
+        chartGroup.visible = chartIn > 0.01;
+        chartGroup.rotation.y = lerp(-0.34, -0.12, smooth(seg(u, 0.12, 0.88)));
+        guideMaterials.forEach((material, i) => {
+          material.opacity = (i === 3 ? 0.2 : 0.12) * chartIn;
+        });
+
+        chartBars.forEach((entry, i) => {
+          const start = 0.15 + i * 0.055;
+          const p = easeOut(seg(u, start, start + 0.21));
+          entry.bar.scale.y = Math.max(0.001, entry.height * p);
+          entry.label.position.y = entry.height * p + 0.34;
+          entry.label.material.opacity = p;
+        });
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener("hf-seek", (e) => renderAt(e.detail.time));
+      window.__hfThreeRender = () => renderAt(window.__hfThreeTime || 0);
+      renderAt(0);
+
+      const tl = gsap.timeline({ paused: true });
+      tl.to({ v: 0 }, { v: 1, duration: DURATION, ease: "none" }, 0);
+      window.__timelines["data-stage"] = tl;
+    })();
+  </script>
+</template>

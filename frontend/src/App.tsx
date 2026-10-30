@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   LayoutDashboard,
+  Clapperboard,
   PlusSquare,
   FileText,
   Layers,
@@ -22,6 +23,7 @@ import {
 import { api, createJobsWebSocket } from './api';
 import { JobItem, NavSection, ProjectSummary, SceneItem } from './types';
 import { CreateProjectView, DashboardView } from './views/DashboardAndCreate';
+import { MotionStudioView } from './views/MotionStudio';
 import { ScriptEditorView, StoryboardView } from './views/ScriptAndStoryboard';
 import {
   AnimationStudioView,
@@ -42,6 +44,7 @@ import {
 
 const NAV_ITEMS: { id: NavSection; label: string; icon: React.ComponentType<any> }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { id: 'studio', label: 'Motion Studio', icon: Clapperboard },
   { id: 'create', label: 'Create New Video', icon: PlusSquare },
   { id: 'script', label: 'Script Editor', icon: FileText },
   { id: 'storyboard', label: 'Storyboard', icon: Layers },
@@ -57,9 +60,28 @@ const NAV_ITEMS: { id: NavSection; label: string; icon: React.ComponentType<any>
   { id: 'settings', label: 'Project Settings', icon: Settings },
 ];
 
+const navFromPath = (): NavSection =>
+  typeof window !== 'undefined' && window.location.pathname === '/studio' ? 'studio' : 'dashboard';
+
 export const App: React.FC = () => {
-  const [nav, setNav] = useState<NavSection>('dashboard');
+  const [nav, setNavState] = useState<NavSection>(navFromPath);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const setNav = useCallback((next: NavSection) => {
+    setNavState(next);
+    if (typeof window !== 'undefined') {
+      const targetPath = next === 'studio' ? '/studio' : '/';
+      if (window.location.pathname !== targetPath) {
+        window.history.pushState({}, '', targetPath);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setNavState(navFromPath());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
@@ -82,6 +104,15 @@ export const App: React.FC = () => {
     window.setTimeout(() => {
       setToast((prev) => (prev === msg ? '' : prev));
     }, 4500);
+  }, []);
+
+  const upsertJob = useCallback((updatedJob: JobItem) => {
+    setJobs((prev) => {
+      const exists = prev.some((job) => job.id === updatedJob.id);
+      return exists
+        ? prev.map((job) => (job.id === updatedJob.id ? updatedJob : job))
+        : [updatedJob, ...prev];
+    });
   }, []);
 
   const loadProjects = useCallback(async (selectId?: string) => {
@@ -368,6 +399,16 @@ export const App: React.FC = () => {
               onSelectProject={handleSelectProject}
               onNavigate={setNav}
               onQuickCreateSample={handleQuickCreateSample}
+            />
+          )}
+
+          {nav === 'studio' && (
+            <MotionStudioView
+              jobs={jobs}
+              wsConnected={wsConnected}
+              onJobUpdated={upsertJob}
+              onNotify={notify}
+              onOpenQueue={() => setNav('queue')}
             />
           )}
 

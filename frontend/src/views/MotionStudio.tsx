@@ -1,0 +1,532 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Braces,
+  ChevronDown,
+  ChevronUp,
+  Clapperboard,
+  Download,
+  Eye,
+  FileText,
+  Film,
+  Hammer,
+  ListChecks,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Sparkles,
+  XCircle,
+} from 'lucide-react';
+import { api } from '../api';
+import {
+  JobItem,
+  MotionJobMode,
+  MotionJobQuality,
+  MotionPreview,
+  MotionTemplateId,
+  MotionTemplateInfo,
+} from '../types';
+
+const SAMPLE_SCRIPT =
+  "Bilal says: 'Can a script become a film without a camera?' Zara replies: 'If every word knows where to move.'";
+
+function statusClasses(status: string): string {
+  if (status === 'completed') return 'bg-emerald-500/15 text-emerald-300';
+  if (status === 'failed') return 'bg-red-500/15 text-red-300';
+  if (status === 'running') return 'bg-sky-500/15 text-sky-300';
+  if (status === 'paused') return 'bg-amber-500/15 text-amber-300';
+  if (status === 'cancelled' || status === 'interrupted') return 'bg-orange-500/15 text-orange-300';
+  return 'bg-slate-800 text-slate-300';
+}
+
+export const MotionStudioView: React.FC<{
+  jobs: JobItem[];
+  wsConnected: boolean;
+  onJobUpdated: (job: JobItem) => void;
+  onNotify: (message: string) => void;
+  onOpenQueue: () => void;
+}> = ({ jobs, wsConnected, onJobUpdated, onNotify, onOpenQueue }) => {
+  const [templates, setTemplates] = useState<MotionTemplateInfo[]>([]);
+  const [template, setTemplate] = useState<MotionTemplateId>('quote');
+  const [mode, setMode] = useState<MotionJobMode>('render');
+  const [fps, setFps] = useState<24 | 30 | 60>(60);
+  const [quality, setQuality] = useState<MotionJobQuality>('standard');
+  const [scriptText, setScriptText] = useState(SAMPLE_SCRIPT);
+  const [requestText, setRequestText] = useState('{}');
+  const [preview, setPreview] = useState<MotionPreview | null>(null);
+  const [error, setError] = useState('');
+  const [busyPreview, setBusyPreview] = useState(false);
+  const [busySubmit, setBusySubmit] = useState(false);
+  const [expandedJobId, setExpandedJobId] = useState<string | null>(null);
+
+  const selectedTemplate = useMemo(
+    () => templates.find((item) => item.id === template),
+    [templates, template]
+  );
+  const motionJobs = useMemo(
+    () => jobs.filter((job) => job.job_type === 'motion_graphics'),
+    [jobs]
+  );
+
+  useEffect(() => {
+    api
+      .get('/api/jobs/motion-graphics/templates')
+      .then((res) => setTemplates(res.templates || []))
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
+  }, []);
+
+  useEffect(() => {
+    if (!expandedJobId && motionJobs[0]) setExpandedJobId(motionJobs[0].id);
+  }, [expandedJobId, motionJobs]);
+
+  const buildPayload = () => {
+    let request: Record<string, any>;
+    try {
+      request = requestText.trim() ? JSON.parse(requestText) : {};
+    } catch (err) {
+      throw new Error(`Request overrides are not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (!request || Array.isArray(request) || typeof request !== 'object') {
+      throw new Error('Request overrides must be a JSON object.');
+    }
+    return {
+      template,
+      request,
+      script_text: scriptText,
+      mode,
+      fps,
+      quality,
+    };
+  };
+
+  const handlePreview = async () => {
+    setBusyPreview(true);
+    setError('');
+    try {
+      const result = await api.post<MotionPreview>(
+        '/api/jobs/motion-graphics/preview',
+        buildPayload()
+      );
+      setPreview(result);
+      onNotify('Motion Studio preview validated locally.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyPreview(false);
+    }
+  };
+
+  const handleQueue = async () => {
+    setBusySubmit(true);
+    setError('');
+    try {
+      const result = await api.post('/api/jobs/motion-graphics', buildPayload());
+      if (result.job) {
+        onJobUpdated(result.job as JobItem);
+        setExpandedJobId(result.job.id);
+      }
+      if (result.preview) setPreview(result.preview as MotionPreview);
+      onNotify(
+        mode === 'render'
+          ? 'Motion-graphics render queued. Live progress will appear below.'
+          : 'Motion-graphics build-only job queued.'
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusySubmit(false);
+    }
+  };
+
+  const controlJob = async (jobId: string, action: 'pause' | 'resume' | 'cancel' | 'retry') => {
+    setError('');
+    try {
+      const updated = await api.post<JobItem>(`/api/jobs/${jobId}/${action}`);
+      onJobUpdated(updated);
+      onNotify(`Job ${jobId}: ${action} requested.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const selectTemplate = (id: MotionTemplateId) => {
+    setTemplate(id);
+    setRequestText('{}');
+    setPreview(null);
+    setError('');
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-bold tracking-widest text-amber-300">
+            <Sparkles className="h-3.5 w-3.5" /> STEP V · LOCAL HYPERFRAMES JOBS
+          </div>
+          <h2 className="mt-3 text-2xl font-black tracking-tight text-white">Motion Studio</h2>
+          <p className="mt-1 max-w-3xl text-sm text-slate-400">
+            Turn a script and one of the five reusable templates into a local HyperFrames project —
+            or queue a full MP4 render. Progress, logs and artifacts stay in the existing studio job queue.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${
+              wsConnected ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${wsConnected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+            {wsConnected ? 'Job stream live' : 'Job stream reconnecting'}
+          </span>
+          <button
+            onClick={onOpenQueue}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+          >
+            <ListChecks className="h-4 w-4" /> Render Queue
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {error}
+        </div>
+      )}
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+        <section className="space-y-5 rounded-2xl border border-slate-800 bg-[#111520] p-5">
+          <div>
+            <div className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
+              <Clapperboard className="h-4 w-4 text-amber-400" /> 1. Choose a template
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {templates.map((item) => {
+                const active = item.id === template;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => selectTemplate(item.id)}
+                    className={`rounded-xl border p-3 text-left transition ${
+                      active
+                        ? 'border-amber-500/70 bg-amber-500/15 text-amber-100'
+                        : 'border-slate-800 bg-slate-950/40 text-slate-300 hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="text-xs font-extrabold uppercase tracking-wider">{item.label}</div>
+                    <div className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-slate-400">
+                      {item.description}
+                    </div>
+                    <div className="mt-2 font-mono text-[10px] text-slate-500">
+                      {String(item.default_request.duration_sec ?? '—')}s default
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {selectedTemplate && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {selectedTemplate.request_fields.map((field) => (
+                  <span key={field} className="rounded-full bg-slate-800 px-2 py-1 font-mono text-[10px] text-slate-400">
+                    {field}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="motion-script" className="mb-2 flex items-center gap-2 text-sm font-bold text-white">
+              <FileText className="h-4 w-4 text-sky-400" /> 2. Script (optional for Data / Shape / Outro)
+            </label>
+            <textarea
+              id="motion-script"
+              value={scriptText}
+              onChange={(e) => setScriptText(e.target.value)}
+              rows={5}
+              className="w-full rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-sm leading-relaxed text-slate-100 outline-none focus:border-sky-500"
+              placeholder="Bilal says: '...'"
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Title uses the first parsed scene for setting/timing. Quote uses the first scene with dialogue (plus a second line as the response).
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="motion-request" className="mb-2 flex items-center gap-2 text-sm font-bold text-white">
+              <Braces className="h-4 w-4 text-purple-400" /> 3. Request overrides JSON
+            </label>
+            <textarea
+              id="motion-request"
+              value={requestText}
+              onChange={(e) => setRequestText(e.target.value)}
+              rows={7}
+              spellCheck={false}
+              className="w-full rounded-xl border border-slate-700 bg-slate-950/70 p-3 font-mono text-xs leading-relaxed text-slate-100 outline-none focus:border-purple-500"
+              placeholder='{"duration_sec": 8}'
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Leave <span className="font-mono text-slate-300">{'{}'}</span> to use script-derived values and template defaults. Invalid fields are rejected before a job is queued.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="space-y-1 text-xs font-semibold text-slate-300">
+              Mode
+              <select
+                value={mode}
+                onChange={(e) => setMode(e.target.value as MotionJobMode)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+              >
+                <option value="render">Build + render MP4</option>
+                <option value="build_only">Build project only</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs font-semibold text-slate-300">
+              FPS
+              <select
+                value={fps}
+                onChange={(e) => setFps(Number(e.target.value) as 24 | 30 | 60)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+              >
+                <option value={24}>24</option>
+                <option value={30}>30</option>
+                <option value={60}>60</option>
+              </select>
+            </label>
+            <label className="space-y-1 text-xs font-semibold text-slate-300">
+              Quality
+              <select
+                value={quality}
+                onChange={(e) => setQuality(e.target.value as MotionJobQuality)}
+                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+              >
+                <option value="draft">Draft</option>
+                <option value="standard">Standard</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={handlePreview}
+              disabled={busyPreview || busySubmit}
+              className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/15 px-4 py-2.5 text-sm font-bold text-sky-200 hover:bg-sky-500/25 disabled:opacity-50"
+            >
+              <Eye className="h-4 w-4" /> {busyPreview ? 'Validating…' : 'Preview / Validate'}
+            </button>
+            <button
+              onClick={handleQueue}
+              disabled={busyPreview || busySubmit}
+              className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-black text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+            >
+              {mode === 'render' ? <Play className="h-4 w-4" /> : <Hammer className="h-4 w-4" />}
+              {busySubmit ? 'Queueing…' : mode === 'render' ? 'Queue Render Job' : 'Queue Build Job'}
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 text-[11px] leading-relaxed text-slate-500">
+            Rendering runs the locally configured HyperFrames {selectedTemplate?.hyperframes_version || '0.8.220'} CLI with inline
+            strict variables, then verifies the MP4 from disk. On this low-resource profile, a short template can still take about a minute or more.
+          </div>
+        </section>
+
+        <section className="space-y-5">
+          <div className="rounded-2xl border border-slate-800 bg-[#111520] p-5">
+            <h3 className="text-sm font-bold text-white">Parser &amp; prepared request</h3>
+            {!preview ? (
+              <p className="mt-3 text-sm text-slate-500">
+                Run Preview / Validate to see parsed scenes and the exact request that will be queued.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg bg-slate-900 p-3">
+                    <div className="text-lg font-black text-white">{preview.scene_count}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500">Scenes</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-900 p-3">
+                    <div className="truncate text-lg font-black text-white">{preview.template}</div>
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500">Template</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-900 p-3">
+                    <div className="text-lg font-black text-white">{String(preview.request.duration_sec ?? '—')}s</div>
+                    <div className="text-[10px] uppercase tracking-wider text-slate-500">Duration</div>
+                  </div>
+                </div>
+
+                {preview.scenes.map((scene) => (
+                  <div key={scene.scene_id} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-300">
+                    <div className="font-bold text-white">
+                      Scene {scene.scene_id} · {scene.location} · {scene.time_of_day}
+                    </div>
+                    <div className="mt-1 text-slate-500">
+                      Characters: {scene.characters.join(', ') || '—'} · Actions: {scene.actions.join(', ') || '—'}
+                    </div>
+                    {scene.dialogue.map((line, idx) => (
+                      <div key={idx} className="mt-1 text-sky-200">
+                        <strong>{line.speaker}:</strong> {line.line}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+
+                <details className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                  <summary className="cursor-pointer text-xs font-bold text-slate-200">Prepared request JSON</summary>
+                  <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-slate-400">
+                    {JSON.stringify(preview.request, null, 2)}
+                  </pre>
+                </details>
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-[#111520] p-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white">Motion jobs</h3>
+              <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] text-slate-400">{motionJobs.length}</span>
+            </div>
+
+            {motionJobs.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-500">No motion-graphics jobs yet.</p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {motionJobs.map((job) => {
+                  const expanded = expandedJobId === job.id;
+                  const videoUrl = job.output_paths?.video
+                    ? `/api/jobs/${job.id}/artifacts/video?v=${encodeURIComponent(job.updated_at || '')}`
+                    : '';
+                  const fileArtifactKeys = [
+                    'index_html',
+                    'variables_json',
+                    'build_manifest',
+                    'parsed_scenes',
+                    'render_log',
+                    'verification_json',
+                  ];
+                  const artifactKeys = fileArtifactKeys.filter(
+                    (key) => typeof job.output_paths?.[key] === 'string' && job.output_paths[key]
+                  );
+                  return (
+                    <article key={job.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
+                      <button
+                        onClick={() => setExpandedJobId(expanded ? null : job.id)}
+                        className="flex w-full items-center justify-between gap-2 text-left"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-mono text-[11px] text-amber-300">{job.id}</span>
+                          <span className="block truncate text-sm font-bold text-white">
+                            {String(job.payload?.template || 'motion')} · {String(job.payload?.mode || 'render')}
+                          </span>
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${statusClasses(job.status)}`}>
+                            {job.status}
+                          </span>
+                          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </span>
+                      </button>
+
+                      <div className="mt-2 text-[11px] text-slate-500">{job.current_stage}</div>
+                      {job.progress_measurable && job.progress_pct !== null && (
+                        <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-800">
+                          <div
+                            className="h-full rounded-full bg-amber-500 transition-all"
+                            style={{ width: `${Math.max(0, Math.min(100, job.progress_pct))}%` }}
+                          />
+                        </div>
+                      )}
+
+                      {expanded && (
+                        <div className="mt-3 space-y-3">
+                          {videoUrl && job.status === 'completed' && (
+                            <video src={videoUrl} controls className="aspect-video w-full rounded-lg bg-black" />
+                          )}
+
+                          {job.output_paths?.project_dir && (
+                            <div className="break-all rounded-lg border border-slate-800 bg-black/30 px-3 py-2 font-mono text-[10px] text-slate-400">
+                              Project: {job.output_paths.project_dir}
+                            </div>
+                          )}
+
+                          <div className="flex flex-wrap gap-1.5">
+                            {(job.status === 'queued' || job.status === 'running' || job.status === 'paused') && (
+                              <button
+                                onClick={() => controlJob(job.id, 'cancel')}
+                                className="inline-flex items-center gap-1 rounded-md bg-red-500/15 px-2 py-1.5 text-[11px] font-bold text-red-300"
+                              >
+                                <XCircle className="h-3.5 w-3.5" /> Cancel
+                              </button>
+                            )}
+                            {job.status === 'running' && (
+                              <button
+                                onClick={() => controlJob(job.id, 'pause')}
+                                className="rounded-md bg-slate-800 px-2 py-1.5 text-[11px] font-bold text-slate-200"
+                              >
+                                Pause
+                              </button>
+                            )}
+                            {job.status === 'paused' && (
+                              <button
+                                onClick={() => controlJob(job.id, 'resume')}
+                                className="rounded-md bg-slate-800 px-2 py-1.5 text-[11px] font-bold text-slate-200"
+                              >
+                                Resume
+                              </button>
+                            )}
+                            {(job.status === 'failed' || job.status === 'cancelled' || job.status === 'interrupted') && (
+                              <button
+                                onClick={() => controlJob(job.id, 'retry')}
+                                className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-1.5 text-[11px] font-bold text-amber-300"
+                              >
+                                <RotateCcw className="h-3.5 w-3.5" /> Retry
+                              </button>
+                            )}
+                            <button
+                              onClick={() => api.get(`/api/jobs/${job.id}`).then(onJobUpdated)}
+                              className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1.5 text-[11px] font-bold text-slate-200"
+                            >
+                              <RefreshCw className="h-3.5 w-3.5" /> Refresh
+                            </button>
+                          </div>
+
+                          {artifactKeys.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {artifactKeys.map((key) => (
+                                <a
+                                  key={key}
+                                  href={`/api/jobs/${job.id}/artifacts/${key}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:bg-slate-800"
+                                >
+                                  <Download className="h-3 w-3" /> {key}
+                                </a>
+                              ))}
+                            </div>
+                          )}
+
+                          {job.error_details && (
+                            <div className="rounded-lg bg-red-500/10 p-2 text-[11px] text-red-200">{job.error_details}</div>
+                          )}
+
+                          <details>
+                            <summary className="cursor-pointer text-[11px] font-bold text-slate-300">
+                              <Film className="mr-1 inline h-3.5 w-3.5" /> Job logs
+                            </summary>
+                            <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-lg bg-black/50 p-2 font-mono text-[10px] leading-relaxed text-slate-400">
+                              {(job.logs || []).slice(-40).join('\n')}
+                            </pre>
+                          </details>
+                        </div>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+};

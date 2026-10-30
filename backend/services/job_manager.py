@@ -20,6 +20,11 @@ from backend.core.config import REPO_ROOT, get_settings
 from backend.core.database import dumps_json, get_db, loads_json, utc_now_iso
 from backend.core.logging_config import get_logger
 from backend.services.hardware_service import evaluate_workload_warnings
+from backend.services.motion_graphics_service import (
+    build_motion_graphics_project,
+    render_motion_graphics_project,
+    verify_mp4,
+)
 from backend.services.project_service import (
     get_project,
     get_scene,
@@ -563,6 +568,168 @@ class JobManager:
         )
         return updated_scene
 
+    def _execute_motion_graphics_job(
+        self, job_id: str, payload: dict[str, Any], t_start: float
+    ) -> None:
+        """Build and optionally render one HyperFrames motion-graphics job."""
+
+        template_id = str(payload.get("template") or "")
+        mode = str(payload.get("mode") or "render")
+        request_payload = payload.get("request") or {}
+        script_text = str(payload.get("script_text") or "")
+        if not isinstance(request_payload, dict):
+            raise ValueError("motion-graphics request payload must be a JSON object")
+
+        settings = get_settings()
+        job_root = (settings.workspace_dir / "motion_graphics" / job_id).resolve()
+        project_dir = job_root / "project"
+        job_root.mkdir(parents=True, exist_ok=True)
+
+        self._update_job_state(
+            job_id,
+            current_stage="Parsing script and validating template request",
+            progress_pct=5.0,
+            progress_measurable=True,
+            log_line=f"Preparing HyperFrames template '{template_id}' in {mode} mode.",
+        )
+        built, _request, scenes = build_motion_graphics_project(
+            template_id,
+            request_payload,
+            script_text=script_text,
+            output_dir=project_dir,
+        )
+        if self._is_cancelled(job_id):
+            raise InterruptedError("Motion-graphics job cancelled by user.")
+
+        parsed_scenes_path = job_root / "parsed-scenes.json"
+        parsed_scenes_path.write_text(
+            json.dumps(scenes, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        outputs: dict[str, Any] = {
+            "project_dir": str(built.output_dir),
+            "index_html": str(built.index_path),
+            "variables_json": str(built.variables_path),
+            "build_manifest": str(built.output_dir / "motion-graphics-build.json"),
+            "parsed_scenes": str(parsed_scenes_path),
+            "template": template_id,
+            "mode": mode,
+            "scene_count": len(scenes),
+        }
+        self._update_job_state(
+            job_id,
+            current_stage="HyperFrames project built",
+            progress_pct=25.0,
+            progress_measurable=True,
+            output_paths=outputs,
+            log_line=(
+                f"Built self-contained HyperFrames project with {len(built.files)} files "
+                f"at {built.output_dir}"
+            ),
+        )
+
+        if mode == "build_only":
+            self._update_job_state(
+                job_id,
+                status="completed",
+                current_stage="completed",
+                progress_pct=100.0,
+                progress_measurable=True,
+                output_paths=outputs,
+                completed=True,
+                log_line=(
+                    f"Build-only motion-graphics job completed in "
+                    f"{round(time.time() - t_start, 2)}s."
+                ),
+            )
+            return
+
+        if mode != "render":
+            raise ValueError("motion-graphics mode must be 'build_only' or 'render'")
+
+        output_mp4 = built.output_dir / "renders" / f"{template_id}-{job_id}.mp4"
+
+        def _on_render_progress(hf_pct: float, stage: str) -> None:
+            mapped = 25.0 + (max(0.0, min(100.0, hf_pct)) / 100.0) * 69.0
+            self._update_job_state(
+                job_id,
+                current_stage=stage,
+                progress_pct=mapped,
+                progress_measurable=True,
+            )
+
+        def _on_render_log(line: str) -> None:
+            self._update_job_state(job_id, log_line=line)
+
+        def _on_render_process(proc: subprocess.Popen[str] | None) -> None:
+            with self._lock:
+                if proc is None:
+                    self._active_procs.pop(job_id, None)
+                else:
+                    self._active_procs[job_id] = proc
+            self._update_job_state(job_id, worker_pid=proc.pid if proc else None)
+
+        render_result = render_motion_graphics_project(
+            project_dir=built.output_dir,
+            variables=built.variables,
+            output_path=output_mp4,
+            fps=int(payload.get("fps") or 60),
+            quality=str(payload.get("quality") or "standard"),
+            on_progress=_on_render_progress,
+            on_log=_on_render_log,
+            on_process=_on_render_process,
+            is_cancelled=lambda: self._is_cancelled(job_id),
+        )
+        render_log_path = job_root / "render-log.txt"
+        render_log_path.write_text(
+            "\n".join(str(line) for line in render_result.get("log_tail", [])),
+            encoding="utf-8",
+        )
+        outputs.update(
+            {
+                "video": str(output_mp4),
+                "render_log": str(render_log_path),
+                "render_elapsed_sec": render_result.get("elapsed_sec"),
+            }
+        )
+
+        self._update_job_state(
+            job_id,
+            current_stage="Verifying rendered MP4 from disk",
+            progress_pct=96.0,
+            progress_measurable=True,
+            output_paths=outputs,
+            log_line="HyperFrames render finished; starting MP4 verification.",
+        )
+        verification = verify_mp4(output_mp4)
+        verification_path = job_root / "verification.json"
+        verification_path.write_text(
+            json.dumps(verification, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        outputs["verification"] = verification
+        outputs["verification_json"] = str(verification_path)
+        if not verification.get("verified"):
+            raise RuntimeError(
+                "Rendered MP4 failed verification: "
+                + str(verification.get("error") or verification)
+            )
+
+        self._update_job_state(
+            job_id,
+            status="completed",
+            current_stage="completed",
+            progress_pct=100.0,
+            progress_measurable=True,
+            output_paths=outputs,
+            completed=True,
+            log_line=(
+                f"Motion-graphics MP4 verified: {output_mp4.name} "
+                f"({verification.get('width')}×{verification.get('height')} @ "
+                f"{verification.get('fps')}fps, {verification.get('duration_sec')}s, "
+                f"{verification.get('decoded_frames')} decoded frames) in "
+                f"{round(time.time() - t_start, 2)}s."
+            ),
+        )
+
     def _execute_job(self, job_id: str) -> None:
         job = self.get_job(job_id)
         if job["status"] == "cancelled":
@@ -644,6 +811,10 @@ class JobManager:
                     completed=True,
                     log_line=f"Environment preview saved to {out_png.name}",
                 )
+                return
+
+            if jtype == "motion_graphics":
+                self._execute_motion_graphics_job(job_id, payload, t_start)
                 return
 
             project_id = job["project_id"] or payload["project_id"]

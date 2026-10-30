@@ -1,0 +1,379 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #0a0a0f;
+    }
+    #shape-stage-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <div
+    id="root"
+    data-composition-id="shape-stage"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"shape_kind","type":"enum","label":"3D shape","default":"orb","options":[{"value":"orb","label":"Orb"},{"value":"cube","label":"Cube"},{"value":"pyramid","label":"Pyramid"},{"value":"ring","label":"Ring"}]},{"id":"node_count","type":"number","label":"Node count","default":3,"min":0,"max":3,"step":1},{"id":"node_label_1","type":"string","label":"Node label 1","default":"CORE"},{"id":"node_label_2","type":"string","label":"Node label 2","default":"INPUT"},{"id":"node_label_3","type":"string","label":"Node label 3","default":"OUTPUT"},{"id":"ground_color","type":"color","label":"Ground color","default":"#0a0a0f"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"},{"id":"muted_color","type":"color","label":"Muted color","default":"#8b98a8"}]'
+  >
+    <canvas id="shape-stage-canvas" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="0"></canvas>
+  </div>
+  <script src="assets/lib/three.min.js"></script>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        shape_kind: "orb",
+        node_count: 3,
+        node_label_1: "CORE",
+        node_label_2: "INPUT",
+        node_label_3: "OUTPUT",
+        ground_color: "#0a0a0f",
+        accent_color: "#d4af37",
+        secondary_color: "#4a90d9",
+        muted_color: "#8b98a8",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+      const shapeKind = ["orb", "cube", "pyramid", "ring"].includes(String(vars.shape_kind))
+        ? String(vars.shape_kind)
+        : defaults.shape_kind;
+      const requestedNodes = Math.max(0, Math.min(3, Math.round(Number(vars.node_count) || 0)));
+      const nodeLabels = [];
+      for (let i = 1; i <= requestedNodes; i++) {
+        const label = String(vars[`node_label_${i}`] || "").trim();
+        if (label) nodeLabels.push(label);
+      }
+
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      const seg = (t, a, b) => clamp01((t - a) / (b - a));
+      const easeOut = (v) => 1 - Math.pow(1 - clamp01(v), 3);
+      const lerp = (a, b, v) => a + (b - a) * v;
+      const hash = (i) => {
+        const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+        return x - Math.floor(x);
+      };
+
+      const ground = new THREE.Color(vars.ground_color);
+      const accent = new THREE.Color(vars.accent_color);
+      const secondary = new THREE.Color(vars.secondary_color);
+      const muted = new THREE.Color(vars.muted_color);
+
+      const canvas = document.getElementById("shape-stage-canvas");
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: false,
+        powerPreference: "high-performance",
+      });
+      renderer.setPixelRatio(1);
+      renderer.setSize(1920, 1080, false);
+      renderer.setClearColor(ground, 1);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.08;
+
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(ground, 0.026);
+      const camera = new THREE.PerspectiveCamera(42, 1920 / 1080, 0.1, 100);
+
+      scene.add(new THREE.AmbientLight(0x33415e, 1.65));
+      const key = new THREE.DirectionalLight(0xffe2a8, 2.5);
+      key.position.set(-5, 6, 7);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(secondary, 1.85);
+      rim.position.set(6, 2, -5);
+      scene.add(rim);
+      const shapeLight = new THREE.PointLight(accent, 5, 9, 1.8);
+      scene.add(shapeLight);
+
+      const floorGrid = new THREE.GridHelper(24, 48, 0x16283f, 0x0d1622);
+      floorGrid.position.y = -2.58;
+      floorGrid.material.transparent = true;
+      floorGrid.material.opacity = 0.15;
+      scene.add(floorGrid);
+
+      {
+        const ec = document.createElement("canvas");
+        ec.width = 1024;
+        ec.height = 512;
+        const ex = ec.getContext("2d");
+        const lg = ex.createLinearGradient(0, 0, 0, 512);
+        lg.addColorStop(0, "#2a3648");
+        lg.addColorStop(0.45, "#0d1420");
+        lg.addColorStop(1, "#05070c");
+        ex.fillStyle = lg;
+        ex.fillRect(0, 0, 1024, 512);
+        let rg = ex.createRadialGradient(300, 170, 10, 300, 170, 280);
+        rg.addColorStop(0, "rgba(255,230,170,0.9)");
+        rg.addColorStop(1, "rgba(255,230,170,0)");
+        ex.fillStyle = rg;
+        ex.fillRect(0, 0, 1024, 512);
+        rg = ex.createRadialGradient(770, 205, 10, 770, 205, 320);
+        rg.addColorStop(0, "rgba(120,180,255,0.45)");
+        rg.addColorStop(1, "rgba(120,180,255,0)");
+        ex.fillStyle = rg;
+        ex.fillRect(0, 0, 1024, 512);
+        const etex = new THREE.CanvasTexture(ec);
+        etex.mapping = THREE.EquirectangularReflectionMapping;
+        etex.colorSpace = THREE.SRGBColorSpace;
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromEquirectangular(etex).texture;
+        etex.dispose();
+        pmrem.dispose();
+      }
+
+      {
+        const n = 520;
+        const pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          const r = 11 + hash(i + 9) * 9;
+          const th = hash(i + 31) * Math.PI * 2;
+          const ph = Math.acos(2 * hash(i + 77) - 1);
+          pos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+          pos[i * 3 + 1] = r * Math.cos(ph) * 0.55;
+          pos[i * 3 + 2] = -Math.abs(r * Math.sin(ph) * Math.sin(th)) - 3;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        scene.add(
+          new THREE.Points(
+            geometry,
+            new THREE.PointsMaterial({
+              color: 0x54749c,
+              size: 0.035,
+              transparent: true,
+              opacity: 0.58,
+            }),
+          ),
+        );
+      }
+
+      function makeRadialSprite(scale) {
+        const c = document.createElement("canvas");
+        c.width = c.height = 256;
+        const ctx = c.getContext("2d");
+        const grad = ctx.createRadialGradient(128, 128, 4, 128, 128, 128);
+        grad.addColorStop(0, "rgba(255,224,138,0.5)");
+        grad.addColorStop(0.36, "rgba(212,175,55,0.16)");
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            opacity: 0,
+          }),
+        );
+        sprite.scale.set(scale, scale, 1);
+        return sprite;
+      }
+
+      function makeTextSprite(text, color) {
+        const c = document.createElement("canvas");
+        c.width = 512;
+        c.height = 192;
+        const ctx = c.getContext("2d");
+        ctx.clearRect(0, 0, 512, 192);
+        let fontSize = 82;
+        ctx.font = `900 ${fontSize}px Inter, Arial, sans-serif`;
+        const measured = ctx.measureText(text).width;
+        if (measured > 472) {
+          fontSize = Math.max(44, Math.floor(fontSize * (472 / measured)));
+          ctx.font = `900 ${fontSize}px Inter, Arial, sans-serif`;
+        }
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.shadowColor = "rgba(0,0,0,0.75)";
+        ctx.shadowBlur = 10;
+        ctx.fillStyle = color;
+        ctx.fillText(text, 256, 100);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        const sprite = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthWrite: false,
+            depthTest: false,
+            opacity: 0,
+          }),
+        );
+        sprite.renderOrder = 10;
+        sprite.scale.set(1.08, 0.4, 1);
+        return sprite;
+      }
+
+      function makeShapeGeometry(kind) {
+        if (kind === "cube") return new THREE.BoxGeometry(2.05, 2.05, 2.05);
+        if (kind === "pyramid") return new THREE.ConeGeometry(1.62, 2.55, 4, 1);
+        if (kind === "ring") return new THREE.TorusGeometry(1.34, 0.38, 24, 96);
+        return new THREE.IcosahedronGeometry(1.38, 1);
+      }
+
+      const shapeGroup = new THREE.Group();
+      shapeGroup.position.set(2.3, 0.24, 0.05);
+      scene.add(shapeGroup);
+
+      const glow = makeRadialSprite(5.4);
+      glow.position.z = -0.55;
+      shapeGroup.add(glow);
+
+      const heroGroup = new THREE.Group();
+      shapeGroup.add(heroGroup);
+      const shapeGeometry = makeShapeGeometry(shapeKind);
+      const hero = new THREE.Mesh(
+        shapeGeometry,
+        new THREE.MeshStandardMaterial({
+          color: secondary.clone().lerp(ground, 0.12),
+          metalness: 0.58,
+          roughness: 0.3,
+          flatShading: shapeKind !== "ring",
+        }),
+      );
+      heroGroup.add(hero);
+      const wire = new THREE.Mesh(
+        shapeGeometry,
+        new THREE.MeshBasicMaterial({
+          color: accent,
+          wireframe: true,
+          transparent: true,
+          opacity: 0,
+        }),
+      );
+      wire.scale.setScalar(1.018);
+      heroGroup.add(wire);
+
+      const orbitGroup = new THREE.Group();
+      orbitGroup.rotation.set(1.02, 0, 0.18);
+      shapeGroup.add(orbitGroup);
+      const orbitMaterial = new THREE.MeshBasicMaterial({ color: accent, transparent: true, opacity: 0 });
+      const orbitRing = new THREE.Mesh(new THREE.TorusGeometry(2.08, 0.022, 10, 160), orbitMaterial);
+      orbitGroup.add(orbitRing);
+
+      const secondOrbitGroup = new THREE.Group();
+      secondOrbitGroup.rotation.set(0.34, 0.12, -0.55);
+      shapeGroup.add(secondOrbitGroup);
+      const secondOrbitMaterial = new THREE.MeshBasicMaterial({
+        color: secondary,
+        transparent: true,
+        opacity: 0,
+      });
+      secondOrbitGroup.add(
+        new THREE.Mesh(new THREE.TorusGeometry(1.78, 0.018, 10, 150), secondOrbitMaterial),
+      );
+
+      const orbitEntries = [];
+      {
+        const nodeGeometry = new THREE.SphereGeometry(0.12, 20, 20);
+        nodeLabels.forEach((label, i) => {
+          const material = new THREE.MeshStandardMaterial({
+            color: i === 0 ? accent : secondary,
+            emissive: i === 0 ? accent.clone().multiplyScalar(0.18) : secondary.clone().multiplyScalar(0.12),
+            metalness: 0.3,
+            roughness: 0.3,
+            transparent: true,
+            opacity: 0,
+          });
+          const node = new THREE.Mesh(nodeGeometry, material);
+          orbitGroup.add(node);
+          const labelSprite = makeTextSprite(label, i === 0 ? "#ffe08a" : "#dbeafe");
+          orbitGroup.add(labelSprite);
+          orbitEntries.push({
+            node,
+            material,
+            labelSprite,
+            phase: (i / Math.max(1, nodeLabels.length)) * Math.PI * 2 + 0.55,
+          });
+        });
+      }
+
+      const platformGroup = new THREE.Group();
+      platformGroup.position.set(2.3, -2.06, 0.02);
+      scene.add(platformGroup);
+      const platform = new THREE.Mesh(
+        new THREE.CylinderGeometry(1.48, 1.62, 0.14, 64),
+        new THREE.MeshStandardMaterial({ color: 0x182438, metalness: 0.4, roughness: 0.46 }),
+      );
+      platformGroup.add(platform);
+      const platformRingMaterial = new THREE.MeshBasicMaterial({ color: muted, transparent: true, opacity: 0 });
+      const platformRing = new THREE.Mesh(
+        new THREE.TorusGeometry(1.58, 0.022, 8, 120),
+        platformRingMaterial,
+      );
+      platformRing.rotation.x = Math.PI / 2;
+      platformRing.position.y = 0.08;
+      platformGroup.add(platformRing);
+
+      function renderAt(rawT) {
+        const t = Math.max(0, Math.min(DURATION, Number(rawT) || 0));
+        const u = DURATION > 0 ? t / DURATION : 0;
+
+        const cameraPush = easeOut(seg(u, 0, 0.55));
+        camera.position.set(0, lerp(0.34, 0.18, cameraPush), lerp(8.9, 8.12, cameraPush));
+        camera.lookAt(0, 0, 0);
+
+        const shapeIn = easeOut(seg(u, 0.07, 0.28));
+        const bob = Math.sin(t * 0.72) * 0.055 * shapeIn;
+        shapeGroup.position.y = 0.24 + bob;
+        const shapeScale = 0.18 + 0.82 * shapeIn;
+        shapeGroup.scale.set(shapeScale, shapeScale, shapeScale);
+        shapeGroup.visible = shapeIn > 0.01;
+
+        const baseY = shapeKind === "pyramid" ? Math.PI / 4 : 0;
+        heroGroup.rotation.set(
+          (shapeKind === "ring" ? 0.22 : 0.05) + Math.sin(t * 0.45) * 0.045,
+          baseY - 0.5 + t * 0.3,
+          Math.sin(t * 0.38) * 0.03,
+        );
+        wire.material.opacity = 0.24 * shapeIn;
+        glow.material.opacity = 0.58 * shapeIn;
+        shapeLight.position.set(2.9, 1.15 + bob, 2.1);
+
+        orbitMaterial.opacity = 0.72 * easeOut(seg(u, 0.2, 0.36));
+        secondOrbitMaterial.opacity = 0.46 * easeOut(seg(u, 0.28, 0.44));
+        platformRingMaterial.opacity = 0.5 * shapeIn;
+        orbitGroup.rotation.z = 0.18 + t * 0.045;
+        secondOrbitGroup.rotation.z = -0.55 - t * 0.03;
+
+        orbitEntries.forEach((entry, i) => {
+          const fade = easeOut(seg(u, 0.38 + i * 0.075, 0.52 + i * 0.075));
+          const angle = entry.phase + t * 0.2;
+          const x = Math.cos(angle) * 2.08;
+          const y = Math.sin(angle) * 2.08;
+          entry.node.position.set(x, y, 0.02);
+          entry.node.visible = fade > 0.01;
+          entry.material.opacity = fade;
+          entry.labelSprite.position.set(x, y + 0.32, 0.08);
+          entry.labelSprite.material.opacity = fade;
+        });
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener("hf-seek", (e) => renderAt(e.detail.time));
+      window.__hfThreeRender = () => renderAt(window.__hfThreeTime || 0);
+      renderAt(0);
+
+      const tl = gsap.timeline({ paused: true });
+      tl.to({ v: 0 }, { v: 1, duration: DURATION, ease: "none" }, 0);
+      window.__timelines["shape-stage"] = tl;
+    })();
+  </script>
+</template>

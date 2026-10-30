@@ -1,0 +1,293 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      color: var(--ink_color, #ffffff);
+      font-family: Inter, Arial, sans-serif;
+    }
+    #title-kicker {
+      position: absolute;
+      left: 112px;
+      top: 76px;
+      width: 1050px;
+      white-space: nowrap;
+    }
+    #title-kicker-text {
+      color: var(--accent_color, #d4af37);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.85);
+    }
+    #title-copy {
+      position: absolute;
+      left: 108px;
+      top: 238px;
+      width: 1050px;
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      color: var(--ink_color, #ffffff);
+      text-transform: uppercase;
+    }
+    .title-line {
+      display: block;
+      white-space: nowrap;
+      line-height: 0.94;
+      letter-spacing: -0.04em;
+      font-weight: 900;
+      opacity: 0;
+      text-shadow: 0 10px 46px rgba(0, 0, 0, 0.72);
+    }
+    .title-line.is-accent {
+      color: var(--accent_color, #d4af37);
+    }
+    #title-glyph {
+      position: absolute;
+      left: 1170px;
+      top: 190px;
+      width: 500px;
+      height: 560px;
+      text-align: center;
+    }
+    #title-glyph-anim {
+      color: var(--accent_color, #d4af37);
+      font-family: Inter, Arial, sans-serif;
+      font-size: 470px;
+      font-weight: 900;
+      line-height: 1;
+      opacity: 0;
+      mix-blend-mode: screen;
+      text-shadow: 0 0 54px rgba(212, 175, 55, 0.45);
+    }
+    #title-rule {
+      position: absolute;
+      left: 112px;
+      top: 706px;
+      width: 420px;
+      height: 5px;
+    }
+    #title-rule-anim {
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(
+        90deg,
+        var(--accent_color, #d4af37),
+        var(--secondary_color, #4a90d9)
+      );
+      opacity: 0.9;
+    }
+    #title-subline {
+      position: absolute;
+      left: 112px;
+      top: 742px;
+      width: 980px;
+    }
+    #title-subline-anim {
+      color: var(--ink_color, #ffffff);
+      font-size: 42px;
+      line-height: 1.25;
+      font-weight: 700;
+      opacity: 0;
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.85);
+    }
+    .title-subline-line {
+      display: block;
+      white-space: nowrap;
+    }
+  </style>
+  <div
+    id="root"
+    class="title-text-root"
+    data-composition-id="title-text"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"kicker","type":"string","label":"Kicker","default":"SCRIPT TO MOTION"},{"id":"title_line_1","type":"string","label":"Title line 1","default":"WORDS"},{"id":"title_line_2","type":"string","label":"Title line 2","default":"BECOME"},{"id":"title_line_3","type":"string","label":"Title line 3","default":"MOTION"},{"id":"accent_line","type":"number","label":"Accent line","default":3,"min":1,"max":3,"step":1},{"id":"title_line_1_size","type":"number","label":"Title line 1 size","default":108,"min":64,"max":220,"step":1},{"id":"title_line_2_size","type":"number","label":"Title line 2 size","default":196,"min":64,"max":220,"step":1},{"id":"title_line_3_size","type":"number","label":"Title line 3 size","default":164,"min":64,"max":220,"step":1},{"id":"subline_1","type":"string","label":"Subline 1","default":"Typed words."},{"id":"subline_2","type":"string","label":"Subline 2","default":"Rendered locally."},{"id":"glyph","type":"string","label":"3D coin glyph","default":"M"},{"id":"ink_color","type":"color","label":"Ink color","default":"#ffffff"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"}]'
+  >
+    <div id="title-kicker" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="1">
+      <span id="title-kicker-text" data-var-text="kicker">SCRIPT TO MOTION</span>
+    </div>
+    <h1 id="title-copy" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="2">
+      <span id="title-line-1" class="title-line" data-var-text="title_line_1">WORDS</span>
+      <span id="title-line-2" class="title-line" data-var-text="title_line_2">BECOME</span>
+      <span id="title-line-3" class="title-line is-accent" data-var-text="title_line_3">MOTION</span>
+    </h1>
+    <div
+      id="title-glyph"
+      class="clip"
+      data-start="0"
+      data-duration="__GLYPH_DURATION__"
+      data-track-index="3"
+    >
+      <div id="title-glyph-anim" data-var-text="glyph">M</div>
+    </div>
+    <div
+      id="title-rule"
+      class="clip"
+      data-start="__RULE_START__"
+      data-duration="__RULE_DURATION__"
+      data-track-index="4"
+    >
+      <div id="title-rule-anim"></div>
+    </div>
+    <div
+      id="title-subline"
+      class="clip"
+      data-start="__SUB_START__"
+      data-duration="__SUB_DURATION__"
+      data-track-index="5"
+    >
+      <p id="title-subline-anim">
+        <span id="title-subline-1" class="title-subline-line" data-var-text="subline_1">Typed words.</span>
+        <span id="title-subline-2" class="title-subline-line" data-var-text="subline_2">Rendered locally.</span>
+      </p>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        title_line_1: "WORDS",
+        title_line_2: "BECOME",
+        title_line_3: "MOTION",
+        accent_line: 3,
+        title_line_1_size: 108,
+        title_line_2_size: 196,
+        title_line_3_size: 164,
+        subline_1: "Typed words.",
+        subline_2: "Rendered locally.",
+        glyph: "M",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+
+      const lineIds = ["title-line-1", "title-line-2", "title-line-3"];
+      const lineKeys = ["title_line_1", "title_line_2", "title_line_3"];
+      const sizeKeys = ["title_line_1_size", "title_line_2_size", "title_line_3_size"];
+      const accentLine = Math.max(1, Math.min(3, Number(vars.accent_line) || defaults.accent_line));
+
+      lineIds.forEach((id, index) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        const text = String(vars[lineKeys[index]] ?? "");
+        const requestedSize = Number(vars[sizeKeys[index]]) || defaults[sizeKeys[index]];
+        const fittedSize = Math.floor(1040 / (0.68 * Math.max(1, Array.from(text).length)));
+        element.style.display = text.trim() ? "block" : "none";
+        element.style.fontSize = `${Math.max(64, Math.min(requestedSize, fittedSize))}px`;
+        element.classList.toggle("is-accent", index + 1 === accentLine);
+      });
+
+      ["title-subline-1", "title-subline-2"].forEach((id, index) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        const text = String(vars[index === 0 ? "subline_1" : "subline_2"] ?? "");
+        element.style.display = text.trim() ? "block" : "none";
+      });
+
+      const glyph = document.getElementById("title-glyph-anim");
+      if (glyph && Array.from(String(vars.glyph || "M")).length > 1) {
+        glyph.style.fontSize = "300px";
+      }
+
+      const at = (fraction) => Math.max(0, fraction * DURATION);
+      const span = (fraction) => Math.max(0.12, fraction * DURATION);
+      const exitAt = Math.max(at(0.68), DURATION - 0.44);
+      const exitSpan = Math.min(0.34, Math.max(0.18, DURATION - exitAt - 0.04));
+
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo(
+        "#title-kicker-text",
+        { opacity: 0, y: -18 },
+        { opacity: 1, y: 0, duration: span(0.11), ease: "power3.out" },
+        at(0.024),
+      );
+      tl.fromTo(
+        "#title-line-1",
+        { opacity: 0, y: 54, filter: "blur(12px)" },
+        { opacity: 1, y: 0, filter: "blur(0px)", duration: span(0.14), ease: "power4.out" },
+        at(0.036),
+      );
+      tl.fromTo(
+        "#title-line-2",
+        { opacity: 0, y: 72, scale: 0.96, filter: "blur(14px)" },
+        {
+          opacity: 1,
+          y: 0,
+          scale: 1,
+          filter: "blur(0px)",
+          duration: span(0.16),
+          ease: "power4.out",
+          transformOrigin: "0% 50%",
+        },
+        at(0.076),
+      );
+      tl.fromTo(
+        "#title-line-3",
+        { opacity: 0, y: 58, filter: "blur(12px)" },
+        { opacity: 1, y: 0, filter: "blur(0px)", duration: span(0.14), ease: "power4.out" },
+        at(0.124),
+      );
+      tl.fromTo(
+        "#title-glyph-anim",
+        { opacity: 0, scale: 0.82, filter: "blur(16px)" },
+        {
+          opacity: 0.9,
+          scale: 1.05,
+          filter: "blur(24px)",
+          duration: span(0.18),
+          ease: "power2.out",
+          transformOrigin: "50% 50%",
+        },
+        at(0.2),
+      );
+      tl.to(
+        "#title-glyph-anim",
+        { opacity: 0, duration: span(0.1), ease: "power2.out" },
+        at(0.38),
+      );
+      tl.fromTo(
+        "#title-rule-anim",
+        { scaleX: 0, opacity: 0 },
+        {
+          scaleX: 1,
+          opacity: 0.9,
+          duration: span(0.11),
+          ease: "power3.out",
+          transformOrigin: "0% 50%",
+        },
+        at(0.4),
+      );
+      tl.fromTo(
+        "#title-subline-anim",
+        { opacity: 0, y: 34 },
+        { opacity: 1, y: 0, duration: span(0.11), ease: "power3.out" },
+        at(0.44),
+      );
+      tl.to(
+        ["#title-kicker-text", ".title-line", "#title-subline-anim"],
+        { opacity: 0, y: -18, filter: "blur(7px)", duration: exitSpan, ease: "power2.in" },
+        exitAt,
+      );
+      tl.to(
+        "#title-rule-anim",
+        {
+          scaleX: 0,
+          opacity: 0,
+          duration: exitSpan,
+          ease: "power2.in",
+          transformOrigin: "0% 50%",
+        },
+        exitAt,
+      );
+      window.__timelines["title-text"] = tl;
+    })();
+  </script>
+</template>

@@ -1,0 +1,327 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #0a0a0f;
+    }
+    #title-stage-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <div
+    id="root"
+    data-composition-id="title-stage"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"glyph","type":"string","label":"3D coin glyph","default":"M"},{"id":"coin_label","type":"string","label":"3D coin label","default":"MOTION"},{"id":"ground_color","type":"color","label":"Ground color","default":"#0a0a0f"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"}]'
+  >
+    <canvas id="title-stage-canvas" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="0"></canvas>
+  </div>
+  <script src="assets/lib/three.min.js"></script>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        glyph: "M",
+        coin_label: "MOTION",
+        ground_color: "#0a0a0f",
+        accent_color: "#d4af37",
+        secondary_color: "#4a90d9",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      const seg = (t, a, b) => clamp01((t - a) / (b - a));
+      const smooth = (v) => {
+        v = clamp01(v);
+        return v * v * (3 - 2 * v);
+      };
+      const easeOut = (v) => 1 - Math.pow(1 - clamp01(v), 3);
+      const lerp = (a, b, v) => a + (b - a) * v;
+      const hash = (i) => {
+        const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
+        return x - Math.floor(x);
+      };
+      const hexToRgb = (value, fallback) => {
+        const match = /^#([0-9a-f]{6})$/i.exec(String(value || ""));
+        if (!match) return fallback;
+        const v = parseInt(match[1], 16);
+        return { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 };
+      };
+      const mix = (a, b, amount) => ({
+        r: Math.round(lerp(a.r, b.r, amount)),
+        g: Math.round(lerp(a.g, b.g, amount)),
+        b: Math.round(lerp(a.b, b.b, amount)),
+      });
+      const rgbCss = ({ r, g, b }, alpha = 1) => `rgba(${r},${g},${b},${alpha})`;
+
+      const ground = new THREE.Color(vars.ground_color);
+      const accent = new THREE.Color(vars.accent_color);
+      const secondary = new THREE.Color(vars.secondary_color);
+      const accentRgb = hexToRgb(vars.accent_color, { r: 212, g: 175, b: 55 });
+      const lightAccent = mix(accentRgb, { r: 255, g: 246, b: 190 }, 0.62);
+      const darkAccent = mix(accentRgb, { r: 38, g: 27, b: 4 }, 0.52);
+
+      const canvas = document.getElementById("title-stage-canvas");
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: false,
+        powerPreference: "high-performance",
+      });
+      renderer.setPixelRatio(1);
+      renderer.setSize(1920, 1080, false);
+      renderer.setClearColor(ground, 1);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.08;
+
+      const scene = new THREE.Scene();
+      scene.fog = new THREE.FogExp2(ground, 0.028);
+      const camera = new THREE.PerspectiveCamera(42, 1920 / 1080, 0.1, 100);
+
+      scene.add(new THREE.AmbientLight(0x33415e, 1.7));
+      const key = new THREE.DirectionalLight(0xffe2a8, 2.6);
+      key.position.set(-5, 6, 7);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(secondary, 1.9);
+      rim.position.set(6, 2, -5);
+      scene.add(rim);
+      const coinLight = new THREE.PointLight(accent, 6, 9, 1.8);
+      scene.add(coinLight);
+
+      const grid = new THREE.GridHelper(24, 48, 0x16283f, 0x0d1622);
+      grid.position.y = -2.58;
+      grid.material.transparent = true;
+      grid.material.opacity = 0.16;
+      scene.add(grid);
+
+      // Deterministic canvas environment: enough reflection structure for
+      // metal without an external HDR asset.
+      {
+        const ec = document.createElement("canvas");
+        ec.width = 1024;
+        ec.height = 512;
+        const ex = ec.getContext("2d");
+        const lg = ex.createLinearGradient(0, 0, 0, 512);
+        lg.addColorStop(0, "#2a3648");
+        lg.addColorStop(0.45, "#0d1420");
+        lg.addColorStop(1, "#05070c");
+        ex.fillStyle = lg;
+        ex.fillRect(0, 0, 1024, 512);
+        let rg = ex.createRadialGradient(300, 170, 10, 300, 170, 280);
+        rg.addColorStop(0, rgbCss(lightAccent, 0.95));
+        rg.addColorStop(1, rgbCss(lightAccent, 0));
+        ex.fillStyle = rg;
+        ex.fillRect(0, 0, 1024, 512);
+        rg = ex.createRadialGradient(770, 205, 10, 770, 205, 320);
+        rg.addColorStop(0, "rgba(120,180,255,0.5)");
+        rg.addColorStop(1, "rgba(120,180,255,0)");
+        ex.fillStyle = rg;
+        ex.fillRect(0, 0, 1024, 512);
+        const etex = new THREE.CanvasTexture(ec);
+        etex.mapping = THREE.EquirectangularReflectionMapping;
+        etex.colorSpace = THREE.SRGBColorSpace;
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromEquirectangular(etex).texture;
+        etex.dispose();
+        pmrem.dispose();
+      }
+
+      // Deterministic, sparse data field behind the hero object.
+      {
+        const n = 620;
+        const pos = new Float32Array(n * 3);
+        for (let i = 0; i < n; i++) {
+          const r = 11 + hash(i + 9) * 9;
+          const th = hash(i + 31) * Math.PI * 2;
+          const ph = Math.acos(2 * hash(i + 77) - 1);
+          pos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+          pos[i * 3 + 1] = r * Math.cos(ph) * 0.55;
+          pos[i * 3 + 2] = -Math.abs(r * Math.sin(ph) * Math.sin(th)) - 3;
+        }
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+        scene.add(
+          new THREE.Points(
+            geometry,
+            new THREE.PointsMaterial({
+              color: 0x54749c,
+              size: 0.035,
+              transparent: true,
+              opacity: 0.62,
+            }),
+          ),
+        );
+      }
+
+      function makeRadialSprite(inner, outer, scale) {
+        const c = document.createElement("canvas");
+        c.width = c.height = 256;
+        const ctx = c.getContext("2d");
+        const grad = ctx.createRadialGradient(128, 128, 4, 128, 128, 128);
+        grad.addColorStop(0, inner);
+        grad.addColorStop(0.36, outer);
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            map: tex,
+            transparent: true,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            opacity: 0.72,
+          }),
+        );
+        sprite.scale.set(scale, scale, 1);
+        return sprite;
+      }
+
+      function makeCoinTexture() {
+        const c = document.createElement("canvas");
+        c.width = c.height = 768;
+        const ctx = c.getContext("2d");
+        const grad = ctx.createRadialGradient(300, 250, 40, 384, 384, 390);
+        grad.addColorStop(0, rgbCss(lightAccent));
+        grad.addColorStop(0.48, rgbCss(accentRgb));
+        grad.addColorStop(0.82, rgbCss(mix(accentRgb, darkAccent, 0.42)));
+        grad.addColorStop(1, rgbCss(darkAccent));
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 768, 768);
+        ctx.strokeStyle = rgbCss(lightAccent, 0.9);
+        ctx.lineWidth = 10;
+        ctx.beginPath();
+        ctx.arc(384, 384, 330, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = rgbCss(darkAccent, 0.85);
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(384, 384, 296, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const glyph = String(vars.glyph || defaults.glyph);
+        const glyphChars = Array.from(glyph).length;
+        ctx.font = `900 ${glyphChars > 1 ? 330 : 470}px Inter, Arial, sans-serif`;
+        ctx.fillStyle = rgbCss(lightAccent, 0.88);
+        ctx.fillText(glyph, 392, 396);
+        ctx.fillStyle = rgbCss(darkAccent);
+        ctx.fillText(glyph, 384, 384);
+        ctx.font = "700 44px Inter, Arial, sans-serif";
+        ctx.fillStyle = rgbCss(darkAccent, 0.9);
+        ctx.fillText(String(vars.coin_label || defaults.coin_label), 384, 642);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 8;
+        return tex;
+      }
+
+      const coinGroup = new THREE.Group();
+      {
+        const coinTex = makeCoinTexture();
+        coinTex.center.set(0.5, 0.5);
+        coinTex.rotation = Math.PI / 2;
+        const backTex = coinTex.clone();
+        backTex.center.set(0.5, 0.5);
+        backTex.rotation = Math.PI / 2;
+        backTex.needsUpdate = true;
+
+        const sideMat = new THREE.MeshStandardMaterial({
+          color: accent.clone().lerp(new THREE.Color(0x201503), 0.28),
+          metalness: 0.88,
+          roughness: 0.34,
+        });
+        const capMat = new THREE.MeshStandardMaterial({
+          map: coinTex,
+          metalness: 0.55,
+          roughness: 0.38,
+        });
+        const backMat = new THREE.MeshStandardMaterial({
+          map: backTex,
+          metalness: 0.55,
+          roughness: 0.38,
+        });
+        const coin = new THREE.Mesh(
+          new THREE.CylinderGeometry(1.28, 1.28, 0.22, 96, 1, false),
+          [sideMat, capMat, backMat],
+        );
+        coin.rotation.x = Math.PI / 2;
+        coinGroup.add(coin);
+
+        const ridgeGeo = new THREE.BoxGeometry(0.055, 0.15, 0.24);
+        const ridgeMat = new THREE.MeshStandardMaterial({
+          color: accent.clone().lerp(new THREE.Color(0xffffff), 0.08),
+          metalness: 0.85,
+          roughness: 0.38,
+        });
+        for (let i = 0; i < 72; i++) {
+          const a = (i / 72) * Math.PI * 2;
+          const ridge = new THREE.Mesh(ridgeGeo, ridgeMat);
+          ridge.position.set(Math.cos(a) * 1.31, Math.sin(a) * 1.31, 0);
+          ridge.rotation.z = a + Math.PI / 2;
+          coinGroup.add(ridge);
+        }
+
+        const glow = makeRadialSprite(
+          rgbCss(lightAccent, 0.55),
+          rgbCss(accentRgb, 0.18),
+          5.6,
+        );
+        glow.name = "coinGlow";
+        glow.position.z = -0.35;
+        coinGroup.add(glow);
+      }
+      scene.add(coinGroup);
+
+      function renderAt(rawT) {
+        const t = Math.max(0, Math.min(DURATION, Number(rawT) || 0));
+        const u = DURATION > 0 ? t / DURATION : 0;
+
+        const cameraPush = easeOut(seg(u, 0, 0.58));
+        camera.position.set(0, lerp(0.34, 0.18, cameraPush), lerp(8.9, 8.1, cameraPush));
+        camera.lookAt(0, 0, 0);
+
+        const coinIn = easeOut(seg(u, 0.2, 0.42));
+        const coinScale = 0.18 + 0.9 * coinIn;
+        const bob = Math.sin(t * 0.75) * 0.025 * coinIn;
+        coinGroup.position.set(2.55, 0.22 + bob, 0);
+        coinGroup.scale.set(coinScale, coinScale, coinScale);
+        coinGroup.rotation.set(
+          -0.08 + Math.sin(t * 0.7) * 0.035,
+          t * 0.9,
+          0.035 * Math.sin(t * 0.5),
+        );
+        coinGroup.visible = u >= 0.195 && coinScale > 0.02;
+        coinLight.position.set(3.15, 1.12 + bob, 1.8);
+
+        const glow = coinGroup.getObjectByName("coinGlow");
+        if (glow) glow.material.opacity = 0.34 + 0.34 * smooth(coinIn);
+
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener("hf-seek", (e) => renderAt(e.detail.time));
+      window.__hfThreeRender = () => renderAt(window.__hfThreeTime || 0);
+      renderAt(0);
+
+      const tl = gsap.timeline({ paused: true });
+      tl.to({ v: 0 }, { v: 1, duration: DURATION, ease: "none" }, 0);
+      window.__timelines["title-stage"] = tl;
+    })();
+  </script>
+</template>

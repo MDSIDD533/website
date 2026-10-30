@@ -1,5 +1,6 @@
 export type NavSection =
   | 'dashboard'
+  | 'studio'
   | 'create'
   | 'script'
   | 'storyboard'
@@ -167,6 +168,39 @@ export interface JobItem {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export type MotionTemplateId = 'title' | 'data' | 'shape' | 'quote' | 'outro';
+export type MotionJobMode = 'build_only' | 'render';
+export type MotionJobQuality = 'draft' | 'standard' | 'high';
+
+export interface MotionTemplateInfo {
+  id: MotionTemplateId;
+  label: string;
+  description: string;
+  hyperframes_version: string;
+  request_fields: string[];
+  default_request: Record<string, any>;
+  default_variables: Record<string, any>;
+  variable_schema: Array<Record<string, any>>;
+}
+
+export interface MotionParsedScene {
+  scene_id: number;
+  location: string;
+  time_of_day: string;
+  characters: string[];
+  actions: string[];
+  dialogue: Array<{ speaker: string; line: string }>;
+  duration_sec: number;
+}
+
+export interface MotionPreview {
+  template: MotionTemplateId;
+  scenes: MotionParsedScene[];
+  scene_count: number;
+  request: Record<string, any>;
+  variables: Record<string, any>;
 }
 
 export interface ModelItem {

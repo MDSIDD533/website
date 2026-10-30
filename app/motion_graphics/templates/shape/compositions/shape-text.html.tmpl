@@ -1,0 +1,235 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      color: var(--ink_color, #ffffff);
+      font-family: Inter, Arial, sans-serif;
+    }
+    .shape-clip {
+      position: absolute;
+    }
+    .shape-anim {
+      opacity: 0;
+    }
+    #shape-copy {
+      left: 110px;
+      top: 104px;
+      width: 800px;
+    }
+    #shape-kicker {
+      color: var(--accent_color, #d4af37);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.85);
+    }
+    #shape-headline {
+      margin-top: 20px;
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      font-weight: 900;
+      line-height: 0.99;
+      letter-spacing: -0.04em;
+      text-transform: uppercase;
+      text-shadow: 0 8px 38px rgba(0, 0, 0, 0.72);
+    }
+    .shape-headline-line {
+      display: block;
+      white-space: nowrap;
+    }
+    .shape-headline-line.is-accent {
+      color: var(--accent_color, #d4af37);
+    }
+    #shape-statement {
+      left: 112px;
+      top: 420px;
+      width: 760px;
+    }
+    #shape-statement-anim {
+      font-size: 46px;
+      line-height: 1.24;
+      font-weight: 750;
+      color: var(--ink_color, #ffffff);
+      text-shadow: 0 5px 28px rgba(0, 0, 0, 0.86);
+    }
+    #shape-features {
+      left: 112px;
+      top: 632px;
+      width: 760px;
+    }
+    .shape-feature {
+      display: flex;
+      align-items: baseline;
+      gap: 22px;
+      margin-top: 26px;
+      opacity: 0;
+      font-size: 36px;
+      line-height: 1.25;
+      font-weight: 700;
+      color: var(--ink_color, #ffffff);
+      text-shadow: 0 4px 24px rgba(0, 0, 0, 0.86);
+    }
+    .shape-feature:first-child {
+      margin-top: 0;
+    }
+    .shape-feature-index {
+      flex: 0 0 auto;
+      color: var(--secondary_color, #4a90d9);
+      font-family: "Space Mono", monospace;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+    }
+    .shape-feature-text {
+      white-space: nowrap;
+    }
+  </style>
+  <div
+    id="root"
+    class="shape-text-root"
+    data-composition-id="shape-text"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"kicker","type":"string","label":"Kicker","default":"3D SHAPE · TEMPLATE 03"},{"id":"headline_line_1","type":"string","label":"Headline line 1","default":"ONE CORE"},{"id":"headline_line_2","type":"string","label":"Headline line 2","default":"MANY PARTS"},{"id":"accent_line","type":"number","label":"Accent line","default":2,"min":1,"max":2,"step":1},{"id":"headline_line_1_size","type":"number","label":"Headline line 1 size","default":92,"min":56,"max":120,"step":1},{"id":"headline_line_2_size","type":"number","label":"Headline line 2 size","default":92,"min":56,"max":120,"step":1},{"id":"statement_line","type":"string","label":"Statement line","default":"A single form can carry a whole system."},{"id":"feature_line_1","type":"string","label":"Feature line 1","default":"A clear center"},{"id":"feature_line_2","type":"string","label":"Feature line 2","default":"Moving parts in orbit"},{"id":"feature_line_3","type":"string","label":"Feature line 3","default":"Labels that stay readable"},{"id":"ink_color","type":"color","label":"Ink color","default":"#ffffff"},{"id":"accent_color","type":"color","label":"Accent color","default":"#d4af37"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#4a90d9"}]'
+  >
+    <div id="shape-copy" class="shape-clip clip" data-start="0" data-duration="__DURATION__" data-track-index="0">
+      <div id="shape-copy-anim" class="shape-anim">
+        <div id="shape-kicker" data-var-text="kicker">3D SHAPE · TEMPLATE 03</div>
+        <h1 id="shape-headline">
+          <span id="shape-headline-1" class="shape-headline-line" data-var-text="headline_line_1">ONE CORE</span>
+          <span id="shape-headline-2" class="shape-headline-line is-accent" data-var-text="headline_line_2">MANY PARTS</span>
+        </h1>
+      </div>
+    </div>
+    <div
+      id="shape-statement"
+      class="shape-clip clip"
+      data-start="__STATEMENT_START__"
+      data-duration="__STATEMENT_DURATION__"
+      data-track-index="1"
+    >
+      <div id="shape-statement-anim" class="shape-anim" data-var-text="statement_line">A single form can carry a whole system.</div>
+    </div>
+    <div
+      id="shape-features"
+      class="shape-clip clip"
+      data-start="__FEATURES_START__"
+      data-duration="__FEATURES_DURATION__"
+      data-track-index="2"
+    >
+      <div id="shape-feature-1" class="shape-feature">
+        <span class="shape-feature-index">01</span>
+        <span class="shape-feature-text" data-var-text="feature_line_1">A clear center</span>
+      </div>
+      <div id="shape-feature-2" class="shape-feature">
+        <span class="shape-feature-index">02</span>
+        <span class="shape-feature-text" data-var-text="feature_line_2">Moving parts in orbit</span>
+      </div>
+      <div id="shape-feature-3" class="shape-feature">
+        <span class="shape-feature-index">03</span>
+        <span class="shape-feature-text" data-var-text="feature_line_3">Labels that stay readable</span>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        headline_line_1: "ONE CORE",
+        headline_line_2: "MANY PARTS",
+        accent_line: 2,
+        headline_line_1_size: 92,
+        headline_line_2_size: 92,
+        statement_line: "A single form can carry a whole system.",
+        feature_line_1: "A clear center",
+        feature_line_2: "Moving parts in orbit",
+        feature_line_3: "Labels that stay readable",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+
+      const headlineIds = ["shape-headline-1", "shape-headline-2"];
+      const headlineKeys = ["headline_line_1", "headline_line_2"];
+      const accentLine = Math.max(1, Math.min(2, Number(vars.accent_line) || defaults.accent_line));
+      headlineIds.forEach((id, index) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        const text = String(vars[headlineKeys[index]] ?? "");
+        const requested = Number(vars[`${headlineKeys[index]}_size`]) || 92;
+        const fitted = Math.floor(790 / (0.68 * Math.max(1, Array.from(text).length)));
+        element.style.display = text.trim() ? "block" : "none";
+        element.style.fontSize = `${Math.max(56, Math.min(requested, fitted))}px`;
+        element.classList.toggle("is-accent", index + 1 === accentLine);
+      });
+
+      const statement = document.getElementById("shape-statement-anim");
+      if (statement && String(vars.statement_line || "").length > 62) {
+        statement.style.fontSize = "40px";
+      }
+
+      ["shape-feature-1", "shape-feature-2", "shape-feature-3"].forEach((id, index) => {
+        const element = document.getElementById(id);
+        if (!element) return;
+        const text = String(vars[`feature_line_${index + 1}`] || "");
+        element.style.display = text.trim() ? "flex" : "none";
+      });
+
+      const at = (fraction) => Math.max(0, fraction * DURATION);
+      const span = (fraction) => Math.max(0.18, fraction * DURATION);
+      const exitAt = Math.max(at(0.78), DURATION - 0.44);
+      const exitSpan = Math.min(0.36, Math.max(0.18, DURATION - exitAt - 0.04));
+
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo(
+        "#shape-copy-anim",
+        { opacity: 0, x: -90 },
+        { opacity: 1, x: 0, duration: span(0.08), ease: "power4.out" },
+        at(0.025),
+      );
+      tl.fromTo(
+        "#shape-statement-anim",
+        { opacity: 0, y: 44 },
+        { opacity: 1, y: 0, duration: span(0.075), ease: "power3.out" },
+        at(0.2),
+      );
+      tl.fromTo(
+        "#shape-feature-1",
+        { opacity: 0, x: -38 },
+        { opacity: 1, x: 0, duration: span(0.062), ease: "power3.out" },
+        at(0.42),
+      );
+      tl.fromTo(
+        "#shape-feature-2",
+        { opacity: 0, x: -38 },
+        { opacity: 1, x: 0, duration: span(0.062), ease: "power3.out" },
+        at(0.505),
+      );
+      tl.fromTo(
+        "#shape-feature-3",
+        { opacity: 0, x: -38 },
+        { opacity: 1, x: 0, duration: span(0.062), ease: "power3.out" },
+        at(0.59),
+      );
+      tl.to(
+        [
+          "#shape-copy-anim",
+          "#shape-statement-anim",
+          "#shape-feature-1",
+          "#shape-feature-2",
+          "#shape-feature-3",
+        ],
+        { opacity: 0, y: -18, filter: "blur(6px)", duration: exitSpan, ease: "power3.in" },
+        exitAt,
+      );
+      window.__timelines["shape-text"] = tl;
+    })();
+  </script>
+</template>
