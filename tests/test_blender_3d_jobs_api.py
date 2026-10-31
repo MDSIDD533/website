@@ -34,7 +34,7 @@ def test_blender_theme_catalog_marks_blender_as_primary(api_client: TestClient) 
     assert default["width"] == 1280
     assert default["height"] == 720
     assert default["fps"] == 15
-    assert default["quality"] == "turbo"
+    assert default["quality"] == "ultra_fast"
     assert default["camera_move"] == "drone"
     assert default["render_profile"] == {
         "samples": 1,
@@ -43,16 +43,29 @@ def test_blender_theme_catalog_marks_blender_as_primary(api_client: TestClient) 
         "denoise_prefilter": "NONE",
         "denoise_quality": "FAST",
         "denoise_input_passes": "RGB",
+        "denoise_enabled": True,
         "max_bounces": 0,
         "diffuse_bounces": 0,
         "glossy_bounces": 0,
-        "light_sampling_threshold": 0.15,
+        "transparent_max_bounces": 0,
+        "light_sampling_threshold": 0.2,
+        "use_adaptive_sampling": False,
+        "use_light_tree": False,
+        "direct_light_sampling_type": "MULTIPLE_IMPORTANCE_SAMPLING",
+        "disable_depth_of_field": True,
+        "disable_foliage_shadows": True,
+        "rain_density_scale": 0.62,
+        "render_scale_percent": 85,
+        "temporal_frame_step": 2,
+        "temporal_interpolation": "mci_fast",
         "encode_crf": 23,
         "encode_preset": "veryfast",
     }
+    assert default["rendered_frame_count"] == 135
+    assert (default["internal_width"], default["internal_height"]) == (1088, 612)
 
 
-def test_blender_preview_selects_ww2_with_turbo_default(api_client: TestClient) -> None:
+def test_blender_preview_selects_ww2_with_ultra_fast_default(api_client: TestClient) -> None:
     response = api_client.post(
         "/api/jobs/blender-3d/preview",
         json={
@@ -73,7 +86,7 @@ def test_blender_preview_selects_ww2_with_turbo_default(api_client: TestClient) 
     assert payload["request"]["width"] == 1280
     assert payload["request"]["height"] == 720
     assert payload["request"]["fps"] == 15
-    assert payload["request"]["quality"] == "turbo"
+    assert payload["request"]["quality"] == "ultra_fast"
     assert payload["total_frames"] == 274
     assert payload["plan"]["captions"] == [
         "THE GLOBAL CONFLICT",

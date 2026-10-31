@@ -791,7 +791,10 @@ def encode_blender_frames(
     frames_dir: str | Path,
     output_path: str | Path,
     fps: int,
-    quality: str = "turbo",
+    quality: str = "ultra_fast",
+    output_width: int | None = None,
+    output_height: int | None = None,
+    expected_output_frames: int | None = None,
     captions_path: str | Path | None = None,
     audio_path: str | Path | None = None,
     on_log: LogCallback | None = None,
@@ -809,15 +812,44 @@ def encode_blender_frames(
     try:
         profile = quality_profile(quality)
     except KeyError:
-        profile = quality_profile("turbo")
+        profile = quality_profile("ultra_fast")
     encode_crf = int(profile.get("encode_crf") or 23)
     encode_preset = str(profile.get("encode_preset") or "veryfast")
+    temporal_frame_step = max(1, int(profile.get("temporal_frame_step", 1) or 1))
+    temporal_interpolation = str(profile.get("temporal_interpolation") or "none")
+    render_scale_percent = max(10, min(100, int(profile.get("render_scale_percent", 100) or 100)))
+    if (output_width is None) != (output_height is None):
+        raise ValueError("output_width and output_height must be supplied together")
+    if output_width is not None and (int(output_width) < 2 or int(output_height or 0) < 2):
+        raise ValueError("output_width and output_height must be at least 2")
     audio: Path | None = None
     if audio_path is not None:
         audio = Path(audio_path).expanduser().resolve()
         if not audio.is_file() or audio.stat().st_size <= 0:
             raise RuntimeError(f"Blender speech audio was not found or is empty: {audio}")
     filters: list[str] = []
+    if temporal_frame_step > 1 and len(frame_files) > 1:
+        if temporal_interpolation == "mci_fast":
+            # minterpolate needs future source frames at the tail; cloning the
+            # final rendered frame into the filter graph preserves the exact
+            # requested output count without writing extra PNGs to disk.
+            filters.append(
+                f"loop=loop={temporal_frame_step + 1}:size=1:start={len(frame_files) - 1}"
+            )
+            filters.append(f"setpts=N*{temporal_frame_step}/({fps}*TB)")
+            filters.append(
+                f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bilat:"
+                "me=epzs:mb_size=16:search_param=32:vsbmc=0:scd=none"
+            )
+        elif temporal_interpolation == "blend":
+            filters.append(f"framerate=fps={fps}")
+        else:
+            filters.append(f"fps={fps}")
+        if expected_output_frames is not None:
+            filters.append(f"trim=end_frame={max(1, int(expected_output_frames))}")
+            filters.append(f"setpts=N/({fps}*TB)")
+    if output_width is not None and render_scale_percent != 100:
+        filters.append(f"scale={int(output_width)}:{int(output_height or 0)}:flags=lanczos")
     captions_burned = False
     if captions_path is not None:
         captions = Path(captions_path).expanduser().resolve()
@@ -825,25 +857,37 @@ def encode_blender_frames(
             # Run FFmpeg from the frames directory and reference a local copy
             # by a simple filename; this avoids fragile filtergraph escaping
             # for absolute paths while keeping the source ASS untouched.
+            # Captions are intentionally burned after interpolation/upscale so
+            # text is never motion-warped or softened.
             local_captions = frames / "captions.ass"
             if captions != local_captions:
                 shutil.copy2(captions, local_captions)
             filters.append("ass=filename=captions.ass:fontsdir=/usr/share/fonts/truetype/dejavu")
             captions_burned = True
     filters.append("format=yuv420p")
-    command = [
-        ffmpeg_command(),
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-y",
-        "-framerate",
-        str(fps),
-        "-start_number",
-        "1",
-        "-i",
-        "frame_%04d.png",
-    ]
+    command = [ffmpeg_command(), "-hide_banner", "-loglevel", "error", "-y"]
+    if temporal_frame_step > 1:
+        command.extend(
+            [
+                "-framerate",
+                f"{fps}/{temporal_frame_step}",
+                "-pattern_type",
+                "glob",
+                "-i",
+                "frame_*.png",
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "-framerate",
+                str(fps),
+                "-start_number",
+                "1",
+                "-i",
+                "frame_%04d.png",
+            ]
+        )
     if audio is not None:
         command.extend(["-i", str(audio)])
     command.extend(["-vf", ",".join(filters)])
@@ -904,6 +948,14 @@ def encode_blender_frames(
     return {
         "output_path": str(output),
         "frame_count": len(frame_files),
+        "source_frame_count": len(frame_files),
+        "expected_output_frames": expected_output_frames,
+        "temporal_frame_step": temporal_frame_step,
+        "temporal_interpolation": temporal_interpolation if temporal_frame_step > 1 else "none",
+        "source_fps": round(float(fps) / temporal_frame_step, 3),
+        "render_scale_percent": render_scale_percent,
+        "output_width": output_width,
+        "output_height": output_height,
         "fps": fps,
         "crf": encode_crf,
         "preset": encode_preset,

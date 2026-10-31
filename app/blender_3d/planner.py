@@ -11,9 +11,39 @@ PLANNER_VERSION = "blender3d-plan-v3"
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 DEFAULT_FPS = 15
-DEFAULT_QUALITY = "turbo"
+DEFAULT_QUALITY = "ultra_fast"
 QUALITY_PROFILES: dict[str, dict[str, Any]] = {
-    # Turbo is the website default because it was measured end-to-end rather
+    # Ultra Fast is the current website default.  On the measured Last
+    # Survivor scene it keeps OIDN, but renders only every second timeline
+    # frame at 85% scale and lets FFmpeg motion-compensate the missing
+    # frames back to the requested output FPS/resolution.  Turbo remains
+    # available below for a native every-frame render.
+    "ultra_fast": {
+        "samples": 1,
+        "noise_threshold": 0.3,
+        "denoiser": "OPENIMAGEDENOISE",
+        "denoise_prefilter": "NONE",
+        "denoise_quality": "FAST",
+        "denoise_input_passes": "RGB",
+        "denoise_enabled": True,
+        "max_bounces": 0,
+        "diffuse_bounces": 0,
+        "glossy_bounces": 0,
+        "transparent_max_bounces": 0,
+        "light_sampling_threshold": 0.2,
+        "use_adaptive_sampling": False,
+        "use_light_tree": False,
+        "direct_light_sampling_type": "MULTIPLE_IMPORTANCE_SAMPLING",
+        "disable_depth_of_field": True,
+        "disable_foliage_shadows": True,
+        "rain_density_scale": 0.62,
+        "render_scale_percent": 85,
+        "temporal_frame_step": 2,
+        "temporal_interpolation": "mci_fast",
+        "encode_crf": 23,
+        "encode_preset": "veryfast",
+    },
+    # Turbo was measured end-to-end rather
     # than guessed: the 15s WWII proof used 1280x720, 15fps, one adaptive
     # Cycles sample, RGB-only fast OIDN, zero indirect bounces and a veryfast
     # CRF-23 encode. Resolution/FPS remain request fields so an explicit
@@ -294,8 +324,18 @@ class Blender3DRequest:
         data = asdict(self)
         data["caption_lines"] = list(self.caption_lines)
         data["hero_lines"] = list(self.hero_lines)
-        data["render_profile"] = quality_profile(self.quality)
-        data["frame_count"] = max(1, round(float(self.duration_sec) * int(self.fps)))
+        profile = quality_profile(self.quality)
+        data["render_profile"] = profile
+        frame_count = max(1, round(float(self.duration_sec) * int(self.fps)))
+        frame_step = max(1, int(profile.get("temporal_frame_step", 1) or 1))
+        render_scale = max(10, min(100, int(profile.get("render_scale_percent", 100) or 100)))
+        data["frame_count"] = frame_count
+        data["rendered_frame_count"] = ((frame_count - 1) // frame_step) + 1
+        data["temporal_frame_step"] = frame_step
+        data["source_fps"] = round(float(self.fps) / frame_step, 3)
+        data["render_scale_percent"] = render_scale
+        data["internal_width"] = max(2, int(round(float(self.width) * render_scale / 100.0)))
+        data["internal_height"] = max(2, int(round(float(self.height) * render_scale / 100.0)))
         return data
 
 

@@ -133,6 +133,49 @@ def test_encode_blender_frames_with_captions(tmp_path: Path) -> None:
     assert Path(result["output_path"]).stat().st_size > 0
 
 
+
+def test_encode_ultra_fast_sparse_frames_interpolates_and_upscales(tmp_path: Path) -> None:
+    from PIL import ImageDraw
+
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    for source_index, frame_number in enumerate((1, 3, 5, 7, 9)):
+        image = Image.new("RGB", (64, 36), color=(20, 45, 35))
+        draw = ImageDraw.Draw(image)
+        x = 4 + source_index * 10
+        draw.rectangle((x, 10, x + 8, 26), fill=(220, 180, 80))
+        image.save(frames / f"frame_{frame_number:04d}.png")
+
+    result = service.encode_blender_frames(
+        frames_dir=frames,
+        output_path=tmp_path / "ultra-fast.mp4",
+        fps=15,
+        quality="ultra_fast",
+        output_width=80,
+        output_height=46,
+        expected_output_frames=10,
+    )
+
+    import av
+
+    container = av.open(result["output_path"])
+    try:
+        stream = container.streams.video[0]
+        decoded = sum(1 for _ in container.decode(stream))
+        dimensions = (stream.codec_context.width, stream.codec_context.height)
+    finally:
+        container.close()
+    command_text = " ".join(result["command"])
+    assert result["source_frame_count"] == 5
+    assert result["temporal_frame_step"] == 2
+    assert result["temporal_interpolation"] == "mci_fast"
+    assert result["source_fps"] == 7.5
+    assert result["render_scale_percent"] == 85
+    assert "frame_*.png" in command_text
+    assert "minterpolate=fps=15" in command_text
+    assert "scale=80:46" in command_text
+    assert dimensions == (80, 46)
+    assert decoded == 10
 def test_blender_hero_voice_timeline_locks_measured_piper_joe_lines(tmp_path: Path) -> None:
     preview = service.prepare_blender_3d_preview(
         "Title: The Last Survivor\n"

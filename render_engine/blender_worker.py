@@ -439,6 +439,8 @@ def render_dynamic_3d_scene(spec: dict[str, Any]) -> dict[str, Any]:
     metadata = build_dynamic_scene(plan)
     scene = bpy.context.scene
     total_frames = int(scene.frame_end - scene.frame_start + 1)
+    frame_step = max(1, int(getattr(scene, "frame_step", 1) or 1))
+    expected_rendered_frames = len(range(int(scene.frame_start), int(scene.frame_end) + 1, frame_step))
     thumbnail_fraction = float(spec.get("thumbnail_fraction") or 0.58)
     thumbnail_frame = int(scene.frame_start + max(0.0, min(1.0, thumbnail_fraction)) * max(0, total_frames - 1))
 
@@ -489,18 +491,27 @@ def render_dynamic_3d_scene(spec: dict[str, Any]) -> dict[str, Any]:
         print(f"SIDD_FRAME:1/1", flush=True)
     else:
         assert frames_dir is not None
-        print(f"SIDD_STAGE:raytracing_blender_frames (0/{total_frames})", flush=True)
+        print(
+            f"SIDD_STAGE:raytracing_blender_frames (0/{total_frames}; "
+            f"{expected_rendered_frames} source frames, step {frame_step})",
+            flush=True,
+        )
         scene.render.filepath = str(frames_dir / "frame_")
         bpy.ops.render.render(animation=True)
         frame_files = _dynamic_frame_files(frames_dir)
-        if len(frame_files) != total_frames:
+        if len(frame_files) != expected_rendered_frames:
             raise RuntimeError(
-                f"Blender animation produced {len(frame_files)} frame files, expected {total_frames}"
+                f"Blender animation produced {len(frame_files)} source frame files, "
+                f"expected {expected_rendered_frames} for a {total_frames}-frame timeline at step {frame_step}"
             )
         if thumbnail_path is not None:
-            thumb_source = frames_dir / f"frame_{thumbnail_frame:04d}.png"
-            if not thumb_source.is_file():
-                thumb_source = frame_files[len(frame_files) // 2]
+            def _frame_number(path: Path) -> int:
+                try:
+                    return int(path.stem.rsplit("_", 1)[-1])
+                except Exception:
+                    return thumbnail_frame
+
+            thumb_source = min(frame_files, key=lambda path: abs(_frame_number(path) - thumbnail_frame))
             shutil.copy2(thumb_source, thumbnail_path)
         print(f"SIDD_FRAME:{total_frames}/{total_frames}", flush=True)
 
@@ -517,6 +528,9 @@ def render_dynamic_3d_scene(spec: dict[str, Any]) -> dict[str, Any]:
         "output_png": str(rendered_still) if rendered_still else None,
         "frames_dir": str(frames_dir) if frames_dir else None,
         "frame_count": len(frame_files),
+        "rendered_frame_count": len(frame_files),
+        "timeline_frame_count": total_frames,
+        "frame_step": frame_step,
         "frame_start": int(scene.frame_start),
         "frame_end": int(scene.frame_end),
         "thumbnail_frame": thumbnail_frame,
@@ -525,7 +539,10 @@ def render_dynamic_3d_scene(spec: dict[str, Any]) -> dict[str, Any]:
             "device": getattr(cycles, "device", None),
             "width": int(scene.render.resolution_x),
             "height": int(scene.render.resolution_y),
+            "internal_width": max(2, int(round(float(scene.render.resolution_x) * float(scene.render.resolution_percentage) / 100.0))),
+            "internal_height": max(2, int(round(float(scene.render.resolution_y) * float(scene.render.resolution_percentage) / 100.0))),
             "resolution_percentage": int(scene.render.resolution_percentage),
+            "frame_step": frame_step,
             "fps": int(scene.render.fps),
             "samples": int(getattr(cycles, "samples", 0)),
             "adaptive_sampling": bool(getattr(cycles, "use_adaptive_sampling", False)),

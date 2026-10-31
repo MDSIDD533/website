@@ -178,7 +178,7 @@ export type MotionTemplateId =
   | 'outro'
   | 'adventure3d';
 export type MotionJobMode = 'build_only' | 'render';
-export type MotionJobQuality = 'turbo' | 'draft' | 'standard' | 'high';
+export type MotionJobQuality = 'ultra_fast' | 'turbo' | 'draft' | 'standard' | 'high';
 
 export interface MotionTemplateInfo {
   id: MotionTemplateId;

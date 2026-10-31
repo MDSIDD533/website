@@ -940,6 +940,12 @@ class JobManager:
             "height": request.get("height"),
             "fps": request.get("fps"),
             "quality": request.get("quality"),
+            "rendered_frame_count": request.get("rendered_frame_count"),
+            "temporal_frame_step": request.get("temporal_frame_step"),
+            "source_fps": request.get("source_fps"),
+            "internal_width": request.get("internal_width"),
+            "internal_height": request.get("internal_height"),
+            "render_scale_percent": request.get("render_scale_percent"),
             "blender_plan": plan,
         }
         if hero_voice_timeline is not None:
@@ -1045,10 +1051,16 @@ class JobManager:
             return
 
         expected_frames = int(plan.get("total_frames") or 0)
-        rendered_frames = int(worker_result.get("frame_count") or 0)
-        if rendered_frames != expected_frames:
+        rendered_frames = int(worker_result.get("rendered_frame_count") or worker_result.get("frame_count") or 0)
+        expected_rendered_frames = int(
+            request.get("rendered_frame_count")
+            or worker_result.get("rendered_frame_count")
+            or expected_frames
+        )
+        if rendered_frames != expected_rendered_frames:
             raise RuntimeError(
-                f"Blender rendered {rendered_frames} frames, expected {expected_frames}"
+                f"Blender rendered {rendered_frames} source frames, expected {expected_rendered_frames} "
+                f"for {expected_frames} output frames"
             )
 
         theme_slug = re.sub(r"[^a-z0-9_-]+", "-", str(topic.get("theme") or "scene").lower()).strip("-")
@@ -1059,13 +1071,21 @@ class JobManager:
             progress_pct=88.0,
             progress_measurable=True,
             output_paths=outputs,
-            log_line=f"Encoding {rendered_frames} native {request.get('width')}×{request.get('height')} Blender frames.",
+            log_line=(
+                f"Encoding {rendered_frames} Blender source frames at "
+                f"{request.get('internal_width') or request.get('width')}×{request.get('internal_height') or request.get('height')} "
+                f"(step {request.get('temporal_frame_step') or 1}) into {expected_frames} output frames at "
+                f"{request.get('width')}×{request.get('height')}."
+            ),
         )
         encode_result = encode_blender_frames(
             frames_dir=frames_dir,
             output_path=output_mp4,
             fps=int(request.get("fps") or 15),
-            quality=str(request.get("quality") or "turbo"),
+            quality=str(request.get("quality") or "ultra_fast"),
+            output_width=int(request.get("width") or 1280),
+            output_height=int(request.get("height") or 720),
+            expected_output_frames=expected_frames,
             captions_path=built.captions_path,
             audio_path=hero_voice_timeline["audio_wav"] if hero_voice_timeline else None,
             on_log=_on_log,
@@ -1075,7 +1095,9 @@ class JobManager:
         outputs.update(
             {
                 "video": str(output_mp4),
-                "frame_count": rendered_frames,
+                "frame_count": expected_frames,
+                "rendered_frame_count": rendered_frames,
+                "source_frame_count": rendered_frames,
                 "encode_result": encode_result,
             }
         )

@@ -32,7 +32,7 @@ def test_global_conflict_selects_ww2_battlefield_with_precedence() -> None:
     assert plan.request.width == 1280
     assert plan.request.height == 720
     assert plan.request.fps == 15
-    assert plan.request.quality == "turbo"
+    assert plan.request.quality == "ultra_fast"
     assert plan.request.camera_move == "drone"
     assert plan.to_dict()["total_frames"] == 274
     assert plan.scene_beats[-1]["end_sec"] == pytest.approx(18.235)
@@ -153,7 +153,7 @@ def test_explicit_theme_override_keeps_auto_cues_for_audit() -> None:
     assert "world war ii" in plan.topic.matched_cues
 
 
-def test_turbo_is_the_saved_default_cpu_profile() -> None:
+def test_ultra_fast_is_the_saved_default_cpu_profile() -> None:
     assert quality_profile("turbo") == {
         "samples": 1,
         "noise_threshold": 0.3,
@@ -168,18 +168,32 @@ def test_turbo_is_the_saved_default_cpu_profile() -> None:
         "encode_crf": 23,
         "encode_preset": "veryfast",
     }
+    ultra = quality_profile("ultra_fast")
+    assert ultra["samples"] == 1
+    assert ultra["denoise_enabled"] is True
+    assert ultra["transparent_max_bounces"] == 0
+    assert ultra["render_scale_percent"] == 85
+    assert ultra["temporal_frame_step"] == 2
+    assert ultra["temporal_interpolation"] == "mci_fast"
+    assert ultra["use_light_tree"] is False
     assert quality_profile("draft")["samples"] == 2
     assert quality_profile("standard")["samples"] == 3
     assert quality_profile("high")["samples"] == 6
-    for quality in ("turbo", "draft", "standard", "high"):
+    for quality in ("ultra_fast", "turbo", "draft", "standard", "high"):
         profile = quality_profile(quality)
         assert profile["denoiser"] == "OPENIMAGEDENOISE"
 
     request = Blender3DRequest()
     assert (request.width, request.height, request.fps) == (1280, 720, 15)
-    assert request.quality == "turbo"
+    assert request.quality == "ultra_fast"
     assert request.camera_move == "drone"
-    assert request.to_dict()["render_profile"]["samples"] == 1
+    request_dict = request.to_dict()
+    assert request_dict["render_profile"]["samples"] == 1
+    assert request_dict["frame_count"] == 270
+    assert request_dict["rendered_frame_count"] == 135
+    assert request_dict["temporal_frame_step"] == 2
+    assert request_dict["source_fps"] == 7.5
+    assert (request_dict["internal_width"], request_dict["internal_height"]) == (1088, 612)
     assert Blender3DRequest.from_dict({"fps": 20}).fps == 20
 
 

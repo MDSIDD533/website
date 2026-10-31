@@ -40,6 +40,7 @@ class SceneFactory:
         self.bpy = bpy
         self.plan = plan
         self.request = Blender3DRequest.from_dict(plan.get("request") or {})
+        self.render_profile = quality_profile(self.request.quality)
         self.theme = self.request.theme if self.request.theme != "auto" else str((plan.get("topic") or {}).get("theme") or "abstract_shapes")
         self.theme_info = THEMES[self.theme]
         self.palette = (plan.get("topic") or {}).get("palette") or self.theme_info.palette
@@ -1674,9 +1675,10 @@ class SceneFactory:
 
         # Rain concentrated along the hero corridor, where the close camera
         # can actually see it passing through the rim light.
+        survivor_rain_streaks = max(8, int(round(26 * float(self.render_profile.get("rain_density_scale", 1.0) or 1.0))))
         for group in range(3):
             rain_root = self.empty(f"SurvivorRainSheet{group}", (0, 0, 0), (math.radians(9), 0, math.radians(-4)))
-            for streak in range(26):
+            for streak in range(survivor_rain_streaks):
                 y = self.rng.uniform(-38, 36)
                 x = trail_x(y) + self.rng.uniform(-16, 16)
                 self.cylinder(
@@ -2296,9 +2298,10 @@ class SceneFactory:
 
         # Rain is four looping sheets of shared-mesh streaks.  It remains
         # legible from above but does not add a particle simulation or volume.
+        jungle_rain_streaks = max(10, int(round(34 * float(self.render_profile.get("rain_density_scale", 1.0) or 1.0))))
         for group in range(4):
             rain_root = self.empty(f"RainSheet{group}", (0, 0, 0), (math.radians(10), 0, math.radians(-5)))
-            for streak in range(34):
+            for streak in range(jungle_rain_streaks):
                 self.cylinder(
                     f"RainStreak{group}_{streak}",
                     (self.rng.uniform(-78, 78), self.rng.uniform(-62, 62), self.rng.uniform(0.5, 16.5)),
@@ -2588,10 +2591,11 @@ class SceneFactory:
         profile = quality_profile(self.request.quality)
         scene.frame_start = 1
         scene.frame_end = self.total_frames
+        _safe_set(scene, "frame_step", max(1, int(profile.get("temporal_frame_step", 1) or 1)))
         scene.render.fps = self.fps
         scene.render.resolution_x = int(self.request.width)
         scene.render.resolution_y = int(self.request.height)
-        scene.render.resolution_percentage = 100
+        scene.render.resolution_percentage = max(10, min(100, int(profile.get("render_scale_percent", 100) or 100)))
         scene.render.engine = "CYCLES"
         scene.render.image_settings.file_format = "PNG"
         scene.render.image_settings.color_mode = "RGB"
@@ -2620,11 +2624,11 @@ class SceneFactory:
             _safe_set(scene.view_settings, "exposure", 0.08 if self.theme not in {"space_voyage", "tech_lab", "abstract_shapes"} else 0.22)
         cycles = scene.cycles
         _safe_set(cycles, "device", "CPU")
-        _safe_set(cycles, "use_adaptive_sampling", True)
+        _safe_set(cycles, "use_adaptive_sampling", bool(profile.get("use_adaptive_sampling", True)))
         _safe_set(cycles, "adaptive_threshold", float(profile["noise_threshold"]))
         _safe_set(cycles, "adaptive_min_samples", 1)
         _safe_set(cycles, "samples", int(profile["samples"]))
-        _safe_set(cycles, "use_denoising", True)
+        _safe_set(cycles, "use_denoising", bool(profile.get("denoise_enabled", True)))
         _safe_set(cycles, "denoiser", profile["denoiser"])
         _safe_set(cycles, "denoising_prefilter", profile["denoise_prefilter"])
         _safe_set(cycles, "denoising_quality", profile["denoise_quality"])
@@ -2634,25 +2638,33 @@ class SceneFactory:
         _safe_set(cycles, "diffuse_bounces", int(profile["diffuse_bounces"]))
         _safe_set(cycles, "glossy_bounces", int(profile["glossy_bounces"]))
         _safe_set(cycles, "transmission_bounces", 0)
-        _safe_set(cycles, "transparent_max_bounces", 1)
+        _safe_set(cycles, "transparent_max_bounces", int(profile.get("transparent_max_bounces", 1)))
         _safe_set(cycles, "volume_bounces", 0)
         _safe_set(cycles, "caustics_reflective", False)
         _safe_set(cycles, "caustics_refractive", False)
         _safe_set(cycles, "blur_glossy", 1.0)
         _safe_set(cycles, "sample_clamp_indirect", 1.0)
         _safe_set(cycles, "light_sampling_threshold", float(profile.get("light_sampling_threshold", 0.05)))
-        # Benchmarked on the procedural battlefield frames: FORWARD + Fast GI
-        # was faster than MIS for this sun/area-light, low-bounce stylized set.
-        _safe_set(cycles, "direct_light_sampling_type", "FORWARD_PATH_TRACING")
-        _safe_set(cycles, "use_light_tree", True)
+        # Turbo's FORWARD + Light Tree settings remain its defaults.  Ultra
+        # Fast explicitly measured faster on the six-light Last Survivor set
+        # with MIS and the light tree disabled, so profiles choose both.
+        _safe_set(cycles, "direct_light_sampling_type", str(profile.get("direct_light_sampling_type", "FORWARD_PATH_TRACING")))
+        _safe_set(cycles, "use_light_tree", bool(profile.get("use_light_tree", True)))
         _safe_set(cycles, "use_fast_gi", True)
         _safe_set(cycles, "fast_gi_method", "REPLACE")
         _safe_set(cycles, "ao_bounces_render", 1)
         _safe_set(cycles, "use_auto_tile", True)
         _safe_set(cycles, "tile_size", 1024)
-        _safe_set(self.bpy.context.view_layer.cycles, "use_denoising", True)
+        _safe_set(self.bpy.context.view_layer.cycles, "use_denoising", bool(profile.get("denoise_enabled", True)))
+        if profile.get("disable_foliage_shadows"):
+            shadow_markers = ("tree", "crown", "frond", "fern", "bamboo", "vine", "rain", "canopy")
+            for obj in self.bpy.data.objects:
+                if any(marker in obj.name.lower() for marker in shadow_markers) and hasattr(obj, "cycles_visibility"):
+                    _safe_set(obj.cycles_visibility, "shadow", False)
         camera_data = getattr(scene.camera, "data", None)
         camera_dof = getattr(camera_data, "dof", None)
+        if profile.get("disable_depth_of_field") and camera_dof is not None:
+            _safe_set(camera_dof, "use_dof", False)
         return {
             "engine": "CYCLES",
             "device": "CPU",
@@ -2664,9 +2676,12 @@ class SceneFactory:
             },
             "width": int(self.request.width),
             "height": int(self.request.height),
-            "resolution_percentage": 100,
+            "internal_width": max(2, int(round(float(self.request.width) * float(scene.render.resolution_percentage) / 100.0))),
+            "internal_height": max(2, int(round(float(self.request.height) * float(scene.render.resolution_percentage) / 100.0))),
+            "resolution_percentage": int(scene.render.resolution_percentage),
             "fps": self.fps,
             "frame_count": self.total_frames,
+            "rendered_frame_count": ((self.total_frames - 1) // max(1, int(profile.get("temporal_frame_step", 1) or 1))) + 1,
             "quality": self.request.quality,
             **profile,
         }

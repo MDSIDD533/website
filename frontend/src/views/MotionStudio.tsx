@@ -61,7 +61,7 @@ export const MotionStudioView: React.FC<{
   const [template, setTemplate] = useState<MotionSelectionId>('blender_3d');
   const [mode, setMode] = useState<MotionJobMode>('render');
   const [fps, setFps] = useState<15 | 20 | 24 | 30 | 60>(15);
-  const [quality, setQuality] = useState<MotionJobQuality>('turbo');
+  const [quality, setQuality] = useState<MotionJobQuality>('ultra_fast');
   const [blenderTheme, setBlenderTheme] = useState<BlenderThemeSelection>('auto');
   const [blenderDuration, setBlenderDuration] = useState(18);
   const [includeCaptions, setIncludeCaptions] = useState(true);
@@ -107,7 +107,7 @@ export const MotionStudioView: React.FC<{
 
   const buildPayload = () => {
     const legacyFps = fps === 15 || fps === 20 ? 24 : fps;
-    const legacyQuality = quality === 'turbo' ? 'draft' : quality;
+    const legacyQuality = quality === 'ultra_fast' || quality === 'turbo' ? 'draft' : quality;
     if (isBlender) {
       let request: Record<string, any>;
       try {
@@ -222,7 +222,7 @@ export const MotionStudioView: React.FC<{
       onNotify(
         isBlender
           ? mode === 'render'
-            ? 'Blender 3D Turbo render queued. Frame progress and the verified 720p MP4 will appear below.'
+            ? 'Blender 3D render queued. Frame progress and the verified 720p MP4 will appear below.'
             : 'Blender build-only job queued. The .blend file and thumbnail will appear below.'
           : isAuto
             ? mode === 'render'
@@ -256,10 +256,10 @@ export const MotionStudioView: React.FC<{
     setTemplate(id);
     if (id === 'blender_3d') {
       setFps(15);
-      setQuality('turbo');
+      setQuality('ultra_fast');
     } else {
       if (fps === 15 || fps === 20) setFps(24);
-      if (quality === 'turbo') setQuality('standard');
+      if (quality === 'ultra_fast' || quality === 'turbo') setQuality('standard');
     }
     setRequestText('{}');
     setPreview(null);
@@ -271,16 +271,17 @@ export const MotionStudioView: React.FC<{
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-bold tracking-widest text-amber-300">
-            <Box className="h-3.5 w-3.5" /> BLENDER 3D TURBO · 720P / 15FPS · LOCAL CPU
+            <Box className="h-3.5 w-3.5" /> BLENDER 3D ULTRA FAST · 720P / 15FPS · LOCAL CPU
           </div>
           <h2 className="mt-3 text-2xl font-black tracking-tight text-white">Motion Studio — Blender 3D</h2>
           <p className="mt-1 max-w-3xl text-sm text-slate-400">
-            Blender is the primary engine and Turbo is now the saved default. Paste a script and
+            Blender is the primary engine and Ultra Fast is now the saved default. Paste a script and
             the parser plus topic cues choose a procedural 3D scene—World War II becomes the large
             battlefield, jungle/forest ambush scripts become the dark rainy Jungle War set, and
             finance, space, ocean, technology, nature, fort and abstract scripts get their own
-            animated sets. Turbo renders 1280×720 at 15fps with 1 adaptive Cycles sample, fast
-            OIDN denoise and a smooth aerial drone camera with depth of field. HyperFrames remains
+            animated sets. Ultra Fast renders every second timeline frame at 85% scale with one
+            Cycles sample and fast OIDN, then motion-compensates and upscales to 1280×720 at 15fps.
+            Turbo remains available for a native every-frame render. HyperFrames remains
             below only as a legacy option for older jobs.
           </p>
         </div>
@@ -329,7 +330,7 @@ export const MotionStudioView: React.FC<{
                 <div className="mt-1 line-clamp-3 text-[11px] leading-relaxed text-slate-400">
                   Script topic → procedural Cycles scene → verified MP4.
                 </div>
-                <div className="mt-2 font-mono text-[10px] text-orange-200/80">Turbo · 1280×720 · 15fps</div>
+                <div className="mt-2 font-mono text-[10px] text-orange-200/80">Ultra Fast · 1280×720 output · 15fps</div>
               </button>
               <button
                 onClick={() => selectTemplate('auto')}
@@ -377,7 +378,7 @@ export const MotionStudioView: React.FC<{
                   'topic cues → 3D theme',
                   'WWII → battlefield',
                   'jungle ambush → Jungle War',
-                  'Turbo 1280×720 · 15fps',
+                  'Ultra Fast 1280×720 output · 15fps',
                   '1 adaptive sample + OIDN',
                   'drone camera + depth of field',
                   `${blenderThemes.length || 9} procedural themes`,
@@ -503,9 +504,11 @@ export const MotionStudioView: React.FC<{
                 </span>
               </label>
               <div className="mt-3 rounded-lg bg-slate-950/60 p-3 text-[11px] leading-relaxed text-slate-400">
-                <span className="font-bold text-slate-200">Turbo default:</span> 1280×720 at 100%
-                render scale, 15fps, one continuous smooth camera move and Cycles depth of field. Most themes use the drone path; The Last Survivor uses its low rear hero-tracking shot. {quality === 'turbo'
-                  ? 'Turbo uses max 1 adaptive Cycles sample, RGB-only fast OIDN, zero indirect bounces and a CRF 23 veryfast encode.'
+                <span className="font-bold text-slate-200">Ultra Fast default:</span> 1088×612
+                internal render scale, every second timeline frame, 15fps motion-compensated output at 1280×720. Most themes use the drone path; The Last Survivor uses its low rear hero-tracking shot. {quality === 'ultra_fast'
+                  ? 'Ultra Fast uses 1 Cycles sample, RGB-only fast OIDN, zero bounces, reduced rain/shadow work, frame-step 2 and a CRF 23 veryfast encode.'
+                  : quality === 'turbo'
+                  ? 'Turbo renders every frame natively at 100% scale with max 1 adaptive Cycles sample, RGB-only fast OIDN, zero indirect bounces and a CRF 23 veryfast encode.'
                   : quality === 'draft'
                     ? 'Draft uses max 2 adaptive Cycles samples with fast OIDN denoise.'
                     : quality === 'high'
@@ -527,7 +530,7 @@ export const MotionStudioView: React.FC<{
               />
               <p className="mt-1 text-[11px] text-slate-500">
                 Theme, duration, captions, FPS and quality above override matching JSON fields.
-                Leave width/height unset to keep the Turbo 1280×720 default; camera_move defaults to drone.
+                Leave width/height unset to keep the 1280×720 output default; camera_move defaults to drone.
               </p>
             </div>
           ) : isAuto ? (
@@ -632,7 +635,7 @@ export const MotionStudioView: React.FC<{
                 onChange={(e) => setFps(Number(e.target.value) as 15 | 20 | 24 | 30 | 60)}
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
               >
-                {isBlender && <option value={15}>15 (Turbo)</option>}
+                {isBlender && <option value={15}>15 (Ultra Fast)</option>}
                 {isBlender && <option value={20}>20</option>}
                 <option value={24}>24</option>
                 <option value={30}>30</option>
@@ -646,7 +649,8 @@ export const MotionStudioView: React.FC<{
                 onChange={(e) => setQuality(e.target.value as MotionJobQuality)}
                 className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
               >
-                {isBlender && <option value="turbo">Turbo (fastest)</option>}
+                {isBlender && <option value="ultra_fast">Ultra Fast (default)</option>}
+                {isBlender && <option value="turbo">Turbo (native every frame)</option>}
                 <option value="draft">Draft</option>
                 <option value="standard">Standard</option>
                 <option value="high">High</option>
@@ -702,7 +706,7 @@ export const MotionStudioView: React.FC<{
             {!preview ? (
               <p className="mt-3 text-sm text-slate-500">
                 {isBlender
-                  ? 'Run Preview / Validate to see parsed scenes, the selected 3D theme, matched cues and exact Turbo render settings.'
+                  ? 'Run Preview / Validate to see parsed scenes, the selected 3D theme, matched cues and exact fast render settings.'
                   : isAuto
                     ? 'Run Preview / Validate to see parsed scenes and the exact clip sequence that will be queued.'
                     : 'Run Preview / Validate to see parsed scenes and the exact request that will be queued.'}

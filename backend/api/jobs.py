@@ -89,7 +89,7 @@ class Blender3DJobRequest(BaseModel):
     request: dict[str, Any] = Field(default_factory=dict)
     mode: Literal["build_only", "render"] = "render"
     fps: Literal[12, 15, 20, 24, 30] = 15
-    quality: Literal["turbo", "draft", "standard", "high"] = "turbo"
+    quality: Literal["ultra_fast", "turbo", "draft", "standard", "high"] = "ultra_fast"
     duration_sec: float | None = Field(default=None, ge=3.0, le=120.0)
     theme: BlenderTheme = "auto"
     include_captions: bool = True
