@@ -986,6 +986,10 @@ class ShapeBuildRequest:
         ]
 
 
+QUOTE_MIN_DURATION_SEC = 2.0
+QUOTE_MAX_DURATION_SEC = 30.0
+
+
 @dataclass(frozen=True)
 class QuoteBuildRequest:
     """Validated inputs for the reusable Quote/Dialogue template.
@@ -1042,8 +1046,14 @@ class QuoteBuildRequest:
             raise ValueError("Quote template v1 supports 1920x1080 only")
 
         duration = float(self.duration_sec)
-        if not math.isfinite(duration) or not 6.0 <= duration <= 12.0:
-            raise ValueError("duration_sec must be between 6 and 12 seconds")
+        if (
+            not math.isfinite(duration)
+            or not QUOTE_MIN_DURATION_SEC <= duration <= QUOTE_MAX_DURATION_SEC
+        ):
+            raise ValueError(
+                "duration_sec must be between "
+                f"{QUOTE_MIN_DURATION_SEC:g} and {QUOTE_MAX_DURATION_SEC:g} seconds"
+            )
 
         object.__setattr__(self, "kicker", _clean_line(self.kicker, "kicker", 60))
         object.__setattr__(self, "quote_lines", quote_lines)
@@ -1222,7 +1232,10 @@ def quote_request_from_scene(
         scene_duration = 8.0
     if not math.isfinite(scene_duration):
         scene_duration = 8.0
-    duration = max(6.0, min(12.0, scene_duration))
+    duration = max(
+        QUOTE_MIN_DURATION_SEC,
+        min(QUOTE_MAX_DURATION_SEC, scene_duration),
+    )
 
     characters = scene.get("characters")
     first_character = ""

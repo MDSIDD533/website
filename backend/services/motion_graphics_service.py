@@ -46,8 +46,12 @@ from app.motion_graphics.builder import (
     quote_request_from_scene,
     title_request_from_scene,
 )
-from app.motion_graphics.auto_mapper import AutoSequencePlan, plan_auto_sequence
-from app.script_parser import parse_script
+from app.motion_graphics.auto_mapper import (
+    AutoSequencePlan,
+    plan_auto_sequence,
+    retimed_auto_sequence,
+)
+from app.script_parser import DIALOGUE_LEAD_SEC, DIALOGUE_TURN_GAP_SEC, parse_script
 from backend.core.config import REPO_ROOT
 
 ProgressCallback = Callable[[float, str], None]
@@ -708,6 +712,106 @@ def _synthesize_speech_line(
     )
 
 
+def _measure_dialogue_durations(
+    plan: AutoSequencePlan,
+    output_dir: str | Path,
+    *,
+    video_fps: int = 30,
+    synth_line: SpeechLineSynthesizer | None = None,
+    on_log: LogCallback | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> dict[str, tuple[float, ...]]:
+    """Synthesize dialogue once to measure the real local-TTS durations.
+
+    The preflight files are kept under ``audio-preflight`` as auditable
+    evidence.  Returning one duration per line lets the auto-mapper size
+    each video clip to the actual Joe/Amy (or truthful fallback) speech
+    before HyperFrames renders it, instead of relying only on a word-rate
+    estimate and leaving long silent tails.
+    """
+
+    synthesize = synth_line or _synthesize_speech_line
+    scenes_by_id: dict[int, Mapping[str, Any]] = {}
+    for scene in plan.scenes:
+        try:
+            scenes_by_id[int(scene.get("scene_id") or 0)] = scene
+        except Exception:
+            continue
+
+    measured: dict[str, tuple[float, ...]] = {}
+    preflight_dir = Path(output_dir).resolve() / "audio-preflight"
+
+    for clip in plan.clips:
+        scene = scenes_by_id.get(int(clip.scene_id), {})
+        dialogue = scene.get("dialogue") or []
+        durations: list[float] = []
+
+        for line_index, entry in enumerate(dialogue, start=1):
+            if is_cancelled and is_cancelled():
+                raise InterruptedError(
+                    "Auto sequence cancelled during dialogue preflight."
+                )
+            if not isinstance(entry, Mapping):
+                continue
+            speaker = str(entry.get("speaker") or "Speaker").strip() or "Speaker"
+            text = str(entry.get("line") or "").strip()
+            if not text:
+                continue
+
+            preflight_dir.mkdir(parents=True, exist_ok=True)
+            line_wav = preflight_dir / f"{clip.clip_id}-line-{line_index:02d}.wav"
+            result = synthesize(
+                text,
+                speaker=speaker,
+                output_path=line_wav,
+                video_fps=int(video_fps),
+            )
+
+            duration = 0.0
+            try:
+                duration = float(result.get("duration_sec") or 0.0)
+            except (TypeError, ValueError):
+                duration = 0.0
+            if duration <= 0:
+                raw_samples = result.get("samples")
+                if raw_samples is not None:
+                    try:
+                        import numpy as np
+
+                        samples = np.asarray(raw_samples)
+                        frame_count = (
+                            int(samples.shape[0])
+                            if samples.ndim > 1
+                            else int(samples.size)
+                        )
+                        sample_rate = int(result.get("sample_rate") or 44100)
+                        duration = frame_count / float(sample_rate)
+                    except Exception:
+                        duration = 0.0
+            if duration <= 0:
+                raise RuntimeError(
+                    "Dialogue preflight produced no measurable audio for "
+                    f"{clip.clip_id} line {line_index} ({speaker})."
+                )
+
+            measured_duration = round(float(duration), 3)
+            durations.append(measured_duration)
+            if on_log:
+                engine_used = str(result.get("engine_used") or "local-tts")
+                voice_model = str(result.get("voice_model") or "")
+                model_suffix = f" ({voice_model})" if voice_model else ""
+                on_log(
+                    "Measured dialogue for retiming "
+                    f"{clip.clip_id}: {speaker} via {engine_used}{model_suffix} "
+                    f"= {measured_duration:.3f}s"
+                )
+
+        if durations:
+            measured[clip.clip_id] = tuple(durations)
+
+    return measured
+
+
 def build_dialogue_audio_timeline(
     plan: AutoSequencePlan,
     output_dir: str | Path,
@@ -756,7 +860,7 @@ def build_dialogue_audio_timeline(
     for clip in plan.clips:
         scene = scenes_by_id.get(int(clip.scene_id), {})
         dialogue = scene.get("dialogue") or []
-        cursor_sec = 0.15
+        cursor_sec = DIALOGUE_LEAD_SEC
         clip_lines: list[dict[str, Any]] = []
 
         for line_index, entry in enumerate(dialogue, start=1):
@@ -829,7 +933,9 @@ def build_dialogue_audio_timeline(
             }
             clip_lines.append(line_meta)
             all_lines.append(line_meta)
-            cursor_sec += (placed / float(sample_rate) if sample_rate else 0.0) + 0.25
+            cursor_sec += (
+                placed / float(sample_rate) if sample_rate else 0.0
+            ) + DIALOGUE_TURN_GAP_SEC
 
             if on_log:
                 model_suffix = f" ({voice_model})" if voice_model else ""
@@ -853,6 +959,20 @@ def build_dialogue_audio_timeline(
     timeline_wav = audio_dir / "dialogue-audio.wav"
     write_stereo_wav(timeline_wav, timeline, sample_rate)
 
+    first_speech_start_sec = min(
+        (float(line["start_sec"]) for line in all_lines), default=0.0
+    )
+    last_speech_end_sec = max(
+        (
+            float(line["start_sec"]) + float(line["placed_duration_sec"])
+            for line in all_lines
+        ),
+        default=0.0,
+    )
+    placed_speech_sec = round(
+        sum(float(line["placed_duration_sec"]) for line in all_lines), 3
+    )
+
     metadata: dict[str, Any] = {
         "audio_wav": str(timeline_wav),
         "sample_rate": sample_rate,
@@ -860,6 +980,18 @@ def build_dialogue_audio_timeline(
         "line_count": len(all_lines),
         "engines": sorted(engines),
         "voice_models": sorted(voice_models),
+        "speech_duration_sec": placed_speech_sec,
+        "speech_coverage_pct": round(
+            (placed_speech_sec / float(total_duration) * 100.0)
+            if total_duration > 0
+            else 0.0,
+            3,
+        ),
+        "first_speech_start_sec": round(first_speech_start_sec, 3),
+        "last_speech_end_sec": round(last_speech_end_sec, 3),
+        "trimmed_line_count": int(
+            sum(1 for line in all_lines if bool(line.get("trimmed")))
+        ),
         "lines": all_lines,
         "clips": lines_by_clip,
     }
@@ -1087,6 +1219,39 @@ def execute_auto_motion_graphics_sequence(
     root.mkdir(parents=True, exist_ok=True)
 
     plan = plan_auto_sequence(script_text, brand_label=brand_label)
+    dialogue_retiming: dict[str, Any] | None = None
+    if include_dialogue_audio and mode == "render":
+        measured_dialogue = _measure_dialogue_durations(
+            plan,
+            root,
+            video_fps=int(fps),
+            on_log=on_log,
+            is_cancelled=is_cancelled,
+        )
+        if measured_dialogue:
+            estimated_total = plan.total_duration_sec
+            measured_speech_total = round(
+                sum(sum(values) for values in measured_dialogue.values()), 3
+            )
+            plan = retimed_auto_sequence(plan, measured_dialogue)
+            dialogue_retiming = {
+                "method": "measured_local_tts_preflight",
+                "estimated_total_duration_sec": estimated_total,
+                "retimed_total_duration_sec": plan.total_duration_sec,
+                "measured_speech_total_sec": measured_speech_total,
+                "measured_speech_sec_by_clip": {
+                    clip_id: list(values)
+                    for clip_id, values in measured_dialogue.items()
+                },
+            }
+            if on_log:
+                on_log(
+                    "Dialogue retiming: estimated total "
+                    f"{estimated_total:.3f}s -> measured plan "
+                    f"{plan.total_duration_sec:.3f}s "
+                    f"({measured_speech_total:.3f}s of speech)."
+                )
+
     plan_path = _write_json(root / "auto-plan.json", plan.to_dict())
     parsed_scenes_path = _write_json(
         root / "parsed-scenes.json", list(plan.scenes)
@@ -1151,6 +1316,7 @@ def execute_auto_motion_graphics_sequence(
         "auto_plan_json": str(plan_path),
         "parsed_scenes_json": str(parsed_scenes_path),
         "plan": plan.to_dict(),
+        "dialogue_retiming": dialogue_retiming,
         "clips": clip_results,
         "combined_video": None,
         "combined_video_silent": None,

@@ -123,7 +123,9 @@ def test_scene_adapters_use_actual_parser_dialogue_schema():
     assert quote.quote_lines == ("Can words move?",)
     assert quote.response_speaker == "Zara"
     assert quote.response_line == "Yes, locally."
-    assert quote.duration_sec == 6.0
+    # Parser timing is now driven by the five spoken words, not the old
+    # fixed six-second Quote floor.
+    assert quote.duration_sec == 3.128
     assert title.sublines == ("Can words move?",)
 
 
@@ -144,7 +146,8 @@ def test_quote_request_from_scene_wraps_long_dialogue_and_can_skip_response():
 
     request = quote_request_from_scene(scene, include_response=False)
 
-    assert request.duration_sec == 12.0
+    # Quote now supports speech-led clips up to 30 seconds.
+    assert request.duration_sec == 20.0
     assert len(request.quote_lines) == 3
     assert all(len(line) <= 30 for line in request.quote_lines)
     assert request.has_response is False
@@ -162,7 +165,8 @@ def test_quote_request_from_scene_wraps_long_dialogue_and_can_skip_response():
         {"speaker_name": ""},
         {"response_speaker": "Zara", "response_line": ""},
         {"response_speaker": "", "response_line": "Hello"},
-        {"duration_sec": 5.9},
+        {"duration_sec": 1.9},
+        {"duration_sec": 30.1},
         {"muted_color": "grey"},
     ],
 )

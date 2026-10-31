@@ -13,7 +13,9 @@ Scene shape::
         "characters": list[str],    # e.g. ["Bilal", "Zara"]
         "actions": list[str],       # e.g. ["walk", "light_torch", "talk"]
         "dialogue": list[dict],     # [{"speaker": "Bilal", "line": "..."}]
-        "duration_sec": float,      # heuristic, capped at 8.0
+        "estimated_speech_sec": float,  # dialogue-only speaking estimate
+        "dialogue_word_count": int,    # words inside extracted dialogue
+        "duration_sec": float,      # speech-driven for dialogue scenes
     }
 
 Rules (see Phase 2 spec, sub-step 3.1):
@@ -27,16 +29,41 @@ Rules (see Phase 2 spec, sub-step 3.1):
     location or time, that scene gets its own default (``fort`` / ``day``).
     The sole cross-scene exception is the pronoun ``dono`` ("both"), which
     may resolve to the last two distinct known characters.
-  * Duration: 3.0s base + 1.0s per dialogue line + 0.5s per action
-    beyond the first, capped at 8.0s.
+  * Duration: non-dialogue scenes keep the compact 3.0s narrative card
+    (+0.5s per extra action, capped at 8.0s).  Dialogue scenes are timed
+    from the words actually spoken at 165 words/minute, plus punctuation
+    pauses, a 0.15s lead-in, a 0.35s tail, and 0.25s between turns.  A
+    short line therefore produces a short scene; nobody repeats dialogue
+    just to fill a template.  One parser scene is capped at 30.0s.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Any, Mapping, Optional, Sequence
 
-__all__ = ["parse_script"]
+__all__ = [
+    "DIALOGUE_LEAD_SEC",
+    "DIALOGUE_TAIL_SEC",
+    "DIALOGUE_TURN_GAP_SEC",
+    "estimate_dialogue_duration_sec",
+    "estimate_speech_duration_sec",
+    "parse_script",
+    "split_sentences",
+]
+
+# Dialogue timing is shared by the auto-mapper and the audio timeline so a
+# clip reserved for speech and the WAV placed inside it use the same lead,
+# turn gap, and tail.
+DIALOGUE_LEAD_SEC = 0.15
+DIALOGUE_TAIL_SEC = 0.35
+DIALOGUE_TURN_GAP_SEC = 0.25
+_SPEECH_WORDS_PER_SECOND = 165.0 / 60.0
+_MIN_DIALOGUE_LINE_SEC = 0.55
+_MAX_DIALOGUE_SCENE_DURATION_SEC = 30.0
+_WORD_RE = re.compile(r"[^\W_]+(?:['’][^\W_]+)?", re.UNICODE)
+_CLAUSE_PAUSE_RE = re.compile(r"[,;:—–]")
+_SENTENCE_PAUSE_RE = re.compile(r"[.!?]+")
 
 # ---------------------------------------------------------------------------
 # Keyword tables (all matched case-insensitively)
@@ -210,8 +237,76 @@ def _extract_dialogue(original: str, characters: list[str]) -> list[dict]:
     return dialogue
 
 
+def _dialogue_line_text(entry: Any) -> str:
+    """Return the spoken text from a parser dialogue entry or raw string."""
+
+    if isinstance(entry, Mapping):
+        return str(entry.get("line", entry.get("text", "")) or "").strip()
+    return str(entry or "").strip()
+
+
+def estimate_speech_duration_sec(text: str) -> float:
+    """Estimate how long one spoken line takes, without scene padding.
+
+    The estimate is intentionally text-derived only: word count drives the
+    base duration and punctuation contributes short natural pauses.  It is
+    a planning estimate; the render service can later replace it with the
+    duration measured from the actual locally synthesized WAV.
+    """
+
+    clean = str(text or "").strip()
+    words = _WORD_RE.findall(clean)
+    if not words:
+        return 0.0
+    seconds = len(words) / _SPEECH_WORDS_PER_SECOND
+    seconds += 0.12 * len(_CLAUSE_PAUSE_RE.findall(clean))
+    seconds += 0.22 * len(_SENTENCE_PAUSE_RE.findall(clean))
+    return round(max(_MIN_DIALOGUE_LINE_SEC, seconds), 3)
+
+
+def _dialogue_timing(
+    dialogue: Sequence[Any],
+) -> tuple[float, int, float]:
+    """Return (estimated speech, dialogue words, full scene duration)."""
+
+    lines = [
+        text
+        for entry in dialogue or ()
+        if (text := _dialogue_line_text(entry))
+    ]
+    if not lines:
+        return 0.0, 0, 0.0
+
+    speech_sec = sum(estimate_speech_duration_sec(line) for line in lines)
+    word_count = sum(len(_WORD_RE.findall(line)) for line in lines)
+    scene_sec = (
+        DIALOGUE_LEAD_SEC
+        + speech_sec
+        + DIALOGUE_TURN_GAP_SEC * (len(lines) - 1)
+        + DIALOGUE_TAIL_SEC
+    )
+    return (
+        round(speech_sec, 3),
+        int(word_count),
+        round(min(_MAX_DIALOGUE_SCENE_DURATION_SEC, scene_sec), 3),
+    )
+
+
+def estimate_dialogue_duration_sec(dialogue: Sequence[Any]) -> float:
+    """Estimate the full scene length needed for ``dialogue``.
+
+    Unlike the old fixed ``3s + 1s/line`` heuristic, a one-word reply gets a
+    short scene and a genuinely long exchange can occupy a longer scene.
+    No line is repeated to reach an arbitrary template length.
+    """
+
+    return _dialogue_timing(dialogue)[2]
+
+
 def _duration(actions: list[str], dialogue: list[dict]) -> float:
-    seconds = 3.0 + 1.0 * len(dialogue) + 0.5 * max(0, len(actions) - 1)
+    if dialogue:
+        return estimate_dialogue_duration_sec(dialogue)
+    seconds = 3.0 + 0.5 * max(0, len(actions) - 1)
     return min(8.0, seconds)
 
 
@@ -234,6 +329,9 @@ def parse_script(text: str) -> list[dict]:
             characters = _resolve_dono_characters(characters, seen_characters)
         actions = _ordered_unique(narrative, _ACTION_PATTERNS)
         dialogue = _extract_dialogue(raw, characters)
+        estimated_speech_sec, dialogue_word_count, dialogue_duration_sec = (
+            _dialogue_timing(dialogue)
+        )
         scenes.append(
             {
                 "scene_id": len(scenes) + 1,
@@ -242,7 +340,13 @@ def parse_script(text: str) -> list[dict]:
                 "characters": characters,
                 "actions": actions,
                 "dialogue": dialogue,
-                "duration_sec": _duration(actions, dialogue),
+                "estimated_speech_sec": estimated_speech_sec,
+                "dialogue_word_count": dialogue_word_count,
+                "duration_sec": (
+                    dialogue_duration_sec
+                    if dialogue
+                    else _duration(actions, dialogue)
+                ),
             }
         )
         for name in characters:

@@ -37,7 +37,8 @@ def test_auto_sequence_build_only_creates_four_projects(tmp_path: Path) -> None:
         "title",
         "quote",
     ]
-    assert result["plan"]["total_duration_sec"] == 15.0
+    assert result["plan"]["total_duration_sec"] == 12.009
+    assert result["plan"]["estimated_speech_sec"] == 2.259
 
     plan = json.loads(Path(result["auto_plan_json"]).read_text(encoding="utf-8"))
     assert plan["clip_count"] == 4
@@ -91,7 +92,11 @@ def test_dialogue_audio_timeline_places_parser_dialogue(tmp_path: Path) -> None:
     )
 
     assert metadata is not None
-    assert metadata["duration_sec"] == 15.0
+    assert metadata["duration_sec"] == 12.009
+    assert metadata["speech_duration_sec"] == 0.2
+    assert metadata["first_speech_start_sec"] == 9.15
+    assert metadata["last_speech_end_sec"] == 9.6
+    assert metadata["trimmed_line_count"] == 0
     assert metadata["line_count"] == 2
     assert metadata["engines"] == ["fake-local-tts"]
     assert metadata["voice_models"] == ["fake-bilal.onnx", "fake-zara.onnx"]
@@ -110,7 +115,46 @@ def test_dialogue_audio_timeline_places_parser_dialogue(tmp_path: Path) -> None:
     with wave.open(metadata["audio_wav"], "rb") as wav:
         assert wav.getframerate() == 44100
         assert wav.getnchannels() == 2
-        assert wav.getnframes() == 44100 * 15
+        assert wav.getnframes() == round(44100 * metadata["duration_sec"])
+
+
+def test_measure_dialogue_durations_uses_actual_synth_results(
+    tmp_path: Path,
+) -> None:
+    plan = service.plan_auto_sequence(
+        "Bilal says: 'Hold the torch beside the eastern wall tonight.'\n"
+        "Zara says: 'I am ready and watching the road below.'"
+    )
+    durations_by_speaker = {"Bilal": 4.25, "Zara": 3.5}
+
+    def fake_synth(
+        text: str,
+        *,
+        speaker: str,
+        output_path: str | Path,
+        video_fps: int = 30,
+    ) -> dict[str, Any]:
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-preflight-wav")
+        return {
+            "duration_sec": durations_by_speaker[speaker],
+            "engine_used": "fake-local-tts",
+            "voice_model": f"fake-{speaker.lower()}.onnx",
+            "wav_path": str(path),
+        }
+
+    measured = service._measure_dialogue_durations(
+        plan,
+        tmp_path / "preflight",
+        video_fps=30,
+        synth_line=fake_synth,
+    )
+
+    assert measured == {"clip-01": (4.25,), "clip-02": (3.5,)}
+    assert (
+        tmp_path / "preflight" / "audio-preflight" / "clip-01-line-01.wav"
+    ).is_file()
 
 
 def test_auto_sequence_render_branch_with_fake_renderer(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.motion_graphics.auto_mapper import plan_auto_sequence
+from app.motion_graphics.auto_mapper import plan_auto_sequence, retimed_auto_sequence
 
 
 E2E_SCRIPT = """Bilal qile mein aata hai. Zara mash'al jalati hai. Dono baat karte hain:
@@ -23,8 +23,11 @@ def test_e2e_script_maps_to_three_titles_and_one_quote() -> None:
         "title",
         "quote",
     ]
-    assert [clip.duration_sec for clip in plan.clips] == [3.0, 3.0, 3.0, 6.0]
-    assert plan.total_duration_sec == 15.0
+    # The two short spoken lines now reserve only their estimated speech
+    # time + shared lead/gap/tail, instead of the old fixed 6s Quote floor.
+    assert [clip.duration_sec for clip in plan.clips] == [3.0, 3.0, 3.0, 3.009]
+    assert plan.total_duration_sec == 12.009
+    assert plan.clips[3].estimated_speech_sec == 2.259
 
     assert plan.scenes[0]["actions"] == ["walk"]
     assert plan.scenes[2]["characters"] == ["Bilal", "Zara"]
@@ -72,9 +75,75 @@ def test_dialogue_scene_selects_quote() -> None:
     assert [clip.template for clip in plan.clips] == ["quote"]
     assert plan.clips[0].request["speaker_name"] == "Bilal"
     assert plan.clips[0].request["quote_lines"] == ["Can words move?"]
-    assert plan.clips[0].scene_duration_sec == 4.0
-    # Quote template's valid lower bound is 6 seconds.
-    assert plan.clips[0].duration_sec == 6.0
+    assert plan.clips[0].scene_duration_sec == 1.811
+    assert plan.clips[0].estimated_speech_sec == 1.311
+    # Quote's new tight lower bound is 2 seconds; short dialogue is not
+    # stretched to the former 6-second floor.
+    assert plan.clips[0].duration_sec == 2.0
+
+
+FULL_DIALOGUE_SCRIPT = """Bilal says: 'Zara, hold the torch beside the eastern wall and watch the road below.'
+Zara says: 'I am ready, but the north gate shakes when the cold wind crosses the valley.'
+Bilal says: 'Then stay near the gate, and I will cross the yard before the drums begin.'
+Zara says: 'When riders reach the bridge, raise the silver banner and call my name aloud.'
+Bilal says: 'We will guard this fort together until the first light touches the highest tower.'"""
+
+
+def test_five_long_dialogue_scenes_fill_a_tight_conversation() -> None:
+    plan = plan_auto_sequence(FULL_DIALOGUE_SCRIPT)
+
+    assert [clip.template for clip in plan.clips] == ["quote"] * 5
+    assert [clip.request["speaker_name"] for clip in plan.clips] == [
+        "Bilal",
+        "Zara",
+        "Bilal",
+        "Zara",
+        "Bilal",
+    ]
+    assert [clip.duration_sec for clip in plan.clips] == [
+        5.567,
+        6.295,
+        6.295,
+        5.931,
+        5.811,
+    ]
+    assert plan.total_duration_sec == 29.899
+    assert plan.estimated_speech_sec == 27.399
+    # Every clip starts with its own spoken line; there is no silent
+    # narrative card before the conversation.
+    assert all(clip.estimated_speech_sec > 5.0 for clip in plan.clips)
+
+
+def test_measured_dialogue_retiming_shrinks_clips_without_repeating() -> None:
+    plan = plan_auto_sequence(FULL_DIALOGUE_SCRIPT)
+    retimed = retimed_auto_sequence(
+        plan,
+        {
+            "clip-01": (4.017,),
+            "clip-02": (5.108,),
+            "clip-03": (3.773,),
+            "clip-04": (4.969,),
+            "clip-05": (3.889,),
+        },
+    )
+
+    assert [clip.duration_sec for clip in retimed.clips] == [
+        4.517,
+        5.608,
+        4.273,
+        5.469,
+        4.389,
+    ]
+    assert [clip.request["duration_sec"] for clip in retimed.clips] == [
+        clip.duration_sec for clip in retimed.clips
+    ]
+    assert retimed.total_duration_sec == 24.256
+    assert retimed.measured_speech_sec == 21.756
+    assert retimed.to_dict()["measured_speech_sec"] == 21.756
+    assert all(
+        any("retimed to measured dialogue" in warning for warning in clip.warnings)
+        for clip in retimed.clips
+    )
 
 
 def test_explicit_numeric_pairs_select_data() -> None:

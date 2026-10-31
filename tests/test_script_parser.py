@@ -28,8 +28,12 @@ def test_two_scenes_with_dialogue() -> None:
     assert len(dialogue) == 1
     assert dialogue[0]["speaker"] == "Bilal"
     assert "Guard your left flank" in dialogue[0]["line"]
-    # 3.0 base + 1.0 for the dialogue line (single "talk" action adds 0)
-    assert scenes[1]["duration_sec"] == 4.0
+    # Four spoken words at 165 wpm (1.455s) + terminal pause (0.22s)
+    # + shared scene lead/tail (0.15s + 0.35s).  Dialogue timing is no
+    # longer padded to the old fixed narrative-card duration.
+    assert scenes[1]["estimated_speech_sec"] == 1.675
+    assert scenes[1]["dialogue_word_count"] == 4
+    assert scenes[1]["duration_sec"] == 2.175
 
 
 def test_unknown_location_falls_back_to_fort() -> None:
@@ -96,3 +100,26 @@ def test_dono_without_two_known_characters_stays_unresolved() -> None:
 
     assert scenes[0]["characters"] == []
     assert scenes[0]["actions"] == ["talk"]
+
+
+def test_short_dialogue_gets_a_short_scene_without_repetition() -> None:
+    scenes = parse_script("Zara says: 'Ready!'")
+
+    assert scenes[0]["dialogue"] == [
+        {"speaker": "Zara", "line": "Ready!"}
+    ]
+    assert scenes[0]["dialogue_word_count"] == 1
+    assert scenes[0]["estimated_speech_sec"] == 0.584
+    # One word is not stretched/repeated to fill an arbitrary 6s template.
+    assert scenes[0]["duration_sec"] == 1.084
+
+
+def test_long_dialogue_expands_scene_duration_from_word_count() -> None:
+    scenes = parse_script(
+        "Bilal says: 'Zara, hold the torch beside the eastern wall "
+        "and watch the road below.'"
+    )
+
+    assert scenes[0]["dialogue_word_count"] == 13
+    assert scenes[0]["estimated_speech_sec"] == 5.067
+    assert scenes[0]["duration_sec"] == 5.567

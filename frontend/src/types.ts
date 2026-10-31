@@ -192,6 +192,8 @@ export interface MotionParsedScene {
   characters: string[];
   actions: string[];
   dialogue: Array<{ speaker: string; line: string }>;
+  estimated_speech_sec?: number;
+  dialogue_word_count?: number;
   duration_sec: number;
 }
 
@@ -216,6 +218,8 @@ export interface MotionAutoClipPlan {
   scene_duration_sec: number;
   duration_sec: number;
   warnings: string[];
+  estimated_speech_sec?: number;
+  measured_speech_sec?: number;
 }
 
 export interface MotionAutoPlan {
@@ -227,6 +231,8 @@ export interface MotionAutoPlan {
   scene_count: number;
   clip_count: number;
   total_duration_sec: number;
+  estimated_speech_sec?: number;
+  measured_speech_sec?: number;
   warnings: string[];
 }
 
