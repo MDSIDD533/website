@@ -146,6 +146,7 @@ def test_auto_motion_graphics_preview(api_client: TestClient) -> None:
             "fps": 30,
             "quality": "standard",
             "include_dialogue_audio": True,
+            "include_narration_audio": True,
         },
     )
 
@@ -153,6 +154,8 @@ def test_auto_motion_graphics_preview(api_client: TestClient) -> None:
     payload = response.json()
     assert payload["template"] == "auto"
     assert payload["include_dialogue_audio"] is True
+    assert payload["include_narration_audio"] is True
+    assert payload["plan"]["estimated_narration_sec"] > 0
     assert payload["scene_count"] == 3
     assert payload["clip_count"] == 3
     assert payload["total_duration_sec"] == 9.0
@@ -177,6 +180,7 @@ def test_auto_motion_graphics_build_only_job_and_artifacts(
             "fps": 30,
             "quality": "standard",
             "include_dialogue_audio": True,
+            "include_narration_audio": True,
         },
     )
 
@@ -186,7 +190,9 @@ def test_auto_motion_graphics_build_only_job_and_artifacts(
     assert queued["payload"]["template"] == "auto"
     assert queued["payload"]["planned_clip_count"] == 3
     assert queued["payload"]["include_dialogue_audio"] is True
+    assert queued["payload"]["include_narration_audio"] is True
     assert response.json()["preview"]["include_dialogue_audio"] is True
+    assert response.json()["preview"]["include_narration_audio"] is True
 
     completed = _wait_for_job(api_client, queued["id"])
     assert completed["status"] == "completed", completed
@@ -194,6 +200,7 @@ def test_auto_motion_graphics_build_only_job_and_artifacts(
     assert outputs["template"] == "auto"
     assert outputs["mode"] == "build_only"
     assert outputs["include_dialogue_audio"] is True
+    assert outputs["include_narration_audio"] is True
     assert outputs["scene_count"] == 3
     assert outputs["clip_count"] == 3
     assert Path(outputs["auto_plan_json"]).is_file()
@@ -214,7 +221,7 @@ def test_auto_motion_graphics_build_only_job_and_artifacts(
     ]
 
 
-def test_auto_motion_graphics_manager_passes_dialogue_audio_flag(
+def test_auto_motion_graphics_manager_passes_speech_audio_flags(
     api_client: TestClient,
     monkeypatch: Any,
 ) -> None:
@@ -248,6 +255,7 @@ def test_auto_motion_graphics_manager_passes_dialogue_audio_flag(
             "clips": [
                 {
                     "clip_id": "clip-01",
+                    "speech_audio_lines": [{"wav_path": str(line_wav)}],
                     "dialogue_audio_lines": [{"wav_path": str(line_wav)}],
                 }
             ],
@@ -262,8 +270,26 @@ def test_auto_motion_graphics_manager_passes_dialogue_audio_flag(
                 "streams": [{"codec_type": "video", "type": "video"}],
             },
             "verification_json": str(output_root / "combined-verification.json"),
+            "speech_audio_wav": str(dialogue_wav),
+            "speech_audio_json": str(audio_dir / "dialogue-audio.json"),
             "dialogue_audio_wav": str(dialogue_wav),
             "dialogue_audio_json": str(audio_dir / "dialogue-audio.json"),
+            "speech_audio": {
+                "audio_path": str(dialogue_wav),
+                "line_count": 1,
+                "dialogue_line_count": 1,
+                "narration_line_count": 0,
+                "engines": ["espeak-ng-local"],
+                "lines": [
+                    {
+                        "speaker": "Zara",
+                        "text": "Ready!",
+                        "speech_kind": "dialogue",
+                        "voice_id": "en_female_warm",
+                        "wav_path": str(line_wav),
+                    }
+                ],
+            },
             "dialogue_audio": {
                 "audio_path": str(dialogue_wav),
                 "line_count": 1,
@@ -308,20 +334,26 @@ def test_auto_motion_graphics_manager_passes_dialogue_audio_flag(
             "fps": 30,
             "quality": "standard",
             "include_dialogue_audio": True,
+            "include_narration_audio": True,
         },
     )
 
     assert response.status_code == 200
     queued = response.json()["job"]
     assert queued["payload"]["include_dialogue_audio"] is True
+    assert queued["payload"]["include_narration_audio"] is True
 
     completed = _wait_for_job(api_client, queued["id"])
     assert completed["status"] == "completed", completed
     assert captured["include_dialogue_audio"] is True
+    assert captured["include_narration_audio"] is True
     outputs = completed["output_paths"]
     assert outputs["include_dialogue_audio"] is True
+    assert outputs["include_narration_audio"] is True
     assert outputs["video"].endswith("combined_with_audio.mp4")
     assert outputs["combined_video_silent"].endswith("combined.mp4")
+    assert outputs["has_speech_audio"] is True
+    assert outputs["speech_audio_wav"].endswith("dialogue-audio.wav")
     assert outputs["has_dialogue_audio"] is True
     assert outputs["dialogue_audio_wav"].endswith("dialogue-audio.wav")
     assert outputs["clip_01_line_01_wav"].endswith("clip-01-line-01.wav")

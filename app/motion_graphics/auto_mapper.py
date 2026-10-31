@@ -55,9 +55,11 @@ __all__ = [
     "retimed_auto_sequence",
 ]
 
-AUTO_MAPPER_VERSION = "1.1"
+AUTO_MAPPER_VERSION = "1.2"
 AUTO_POLICY = "scene_led_hybrid_v1"
 DEFAULT_MAX_AUTO_SCENES = 24
+
+_TITLE_PREFIX_RE = re.compile(r"^title\s*:\s*", re.IGNORECASE)
 
 _TEMPLATE_DURATION_BOUNDS: dict[str, tuple[float, float]] = {
     "title": (3.0, 8.0),
@@ -205,6 +207,9 @@ class AutoClipPlan:
     warnings: tuple[str, ...] = ()
     estimated_speech_sec: float = 0.0
     measured_speech_sec: float = 0.0
+    narration_text: str = ""
+    estimated_narration_sec: float = 0.0
+    measured_narration_sec: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return _json_safe(asdict(self))
@@ -237,6 +242,24 @@ class AutoSequencePlan:
         )
 
     @property
+    def estimated_narration_sec(self) -> float:
+        return round(
+            sum(clip.estimated_narration_sec for clip in self.clips), 3
+        )
+
+    @property
+    def measured_narration_sec(self) -> float:
+        return round(
+            sum(clip.measured_narration_sec for clip in self.clips), 3
+        )
+
+    @property
+    def estimated_total_speech_sec(self) -> float:
+        return round(
+            self.estimated_speech_sec + self.estimated_narration_sec, 3
+        )
+
+    @property
     def warnings(self) -> tuple[str, ...]:
         warnings: list[str] = []
         for clip in self.clips:
@@ -250,6 +273,9 @@ class AutoSequencePlan:
         payload["total_duration_sec"] = self.total_duration_sec
         payload["estimated_speech_sec"] = self.estimated_speech_sec
         payload["measured_speech_sec"] = self.measured_speech_sec
+        payload["estimated_narration_sec"] = self.estimated_narration_sec
+        payload["measured_narration_sec"] = self.measured_narration_sec
+        payload["estimated_total_speech_sec"] = self.estimated_total_speech_sec
         payload["warnings"] = list(self.warnings)
         return payload
 
@@ -310,6 +336,22 @@ def _estimated_speech_sec(scene: Mapping[str, Any]) -> float:
     )
 
 
+def _narration_text(sentence_text: str, scene: Mapping[str, Any]) -> str:
+    """Return optional voiceover copy for a non-dialogue scene.
+
+    Dialogue always wins: a scene with extracted speech is not also narrated
+    from its raw sentence, which would read the speaker prefix aloud and
+    duplicate the line.  For a narrative/title/data/outro scene, the exact
+    source sentence becomes narration.  A leading ``Title:`` label is treated
+    as script metadata and is not spoken or shown as part of the title.
+    """
+
+    if _dialogue_texts(scene):
+        return ""
+    clean = _TITLE_PREFIX_RE.sub("", _clean_text(sentence_text)).strip()
+    return clean
+
+
 def _required_dialogue_clip_sec(
     speech_sec: float, *, line_count: int
 ) -> float:
@@ -353,14 +395,14 @@ def retimed_auto_sequence(
     plan: AutoSequencePlan,
     measured_speech_sec_by_clip: Mapping[str, Any],
 ) -> AutoSequencePlan:
-    """Return ``plan`` with dialogue clips sized to measured speech.
+    """Return ``plan`` with speech clips sized to measured local TTS.
 
     ``measured_speech_sec_by_clip`` maps a clip id to either the total
-    measured speech duration or one duration per synthesized dialogue line.
-    The planner's text estimate remains available on each clip, while the
-    final clip/request duration becomes lead-in + measured speech + turn
-    gaps + tail, bounded only by the selected template's valid range.
-    Short dialogue therefore shrinks a clip instead of being padded or
+    measured speech duration or one duration per synthesized dialogue or
+    narration line.  The planner's text estimate remains available on each
+    clip, while the final clip/request duration becomes lead-in + measured
+    speech + turn gaps + tail, bounded only by the selected template's valid
+    range.  Short speech therefore shrinks a clip instead of being padded or
     repeated; long dialogue expands its Quote clip up to 30 seconds.
     """
 
@@ -381,7 +423,11 @@ def retimed_auto_sequence(
             continue
 
         scene = scenes_by_id.get(int(clip.scene_id), {})
-        fallback_line_count = len(_dialogue_texts(scene))
+        dialogue_line_count = len(_dialogue_texts(scene))
+        is_narration = dialogue_line_count == 0 and bool(
+            getattr(clip, "narration_text", "")
+        )
+        fallback_line_count = dialogue_line_count or (1 if is_narration else 0)
         measured_speech, line_count = _measured_speech_and_lines(
             measured_speech_sec_by_clip[clip.clip_id],
             fallback_line_count=fallback_line_count,
@@ -403,13 +449,13 @@ def retimed_auto_sequence(
         warnings = list(clip.warnings)
         if abs(new_duration - clip.duration_sec) >= 0.001:
             warnings.append(
-                "Clip retimed to measured dialogue: "
+                "Clip retimed to measured speech: "
                 f"{clip.duration_sec:.3f}s estimate -> {new_duration:.3f}s "
                 f"for {measured_speech:.3f}s of speech."
             )
         if required > upper:
             warnings.append(
-                "Measured dialogue needs "
+                "Measured speech needs "
                 f"{required:.3f}s but the {clip.template} template allows "
                 f"at most {upper:.3f}s; audio placement may trim the end."
             )
@@ -421,6 +467,11 @@ def retimed_auto_sequence(
                 duration_sec=new_duration,
                 warnings=tuple(warnings),
                 measured_speech_sec=measured_speech,
+                measured_narration_sec=(
+                    measured_speech
+                    if is_narration
+                    else getattr(clip, "measured_narration_sec", 0.0)
+                ),
             )
         )
 
@@ -503,7 +554,9 @@ def _title_request(
     scene: Mapping[str, Any], sentence_text: str
 ) -> tuple[Any, tuple[str, ...]]:
     warnings: list[str] = []
-    clean = _strip_terminal_punctuation(sentence_text)
+    clean = _TITLE_PREFIX_RE.sub(
+        "", _strip_terminal_punctuation(sentence_text)
+    ).strip()
     wrapped = _wrap_words(clean, 18)
 
     if not wrapped:
@@ -877,8 +930,9 @@ def plan_auto_sequence(
     of dialogue scenes can therefore fill a natural 15–30s conversation,
     while one short reply stays a short clip and is never repeated merely
     to fill time.  Non-dialogue clips use the parser scene duration,
-    clamped only by their template's valid range.  ``retimed_auto_sequence``
-    can later replace the text estimate with measured local-TTS durations.
+    clamped only by their template's valid range, and expose their exact
+    source sentence as optional narration copy.  ``retimed_auto_sequence``
+    can later replace either text estimate with measured local-TTS durations.
     Long Quote/Data requests that fail their template validators fall back
     to a Title scene-card and record the reason in that clip's warnings.
     """
@@ -965,6 +1019,12 @@ def plan_auto_sequence(
                 reason_codes = ("narrative_scene",)
 
         estimated_speech_sec = _estimated_speech_sec(scene)
+        narration_text = _narration_text(sentence_text, scene)
+        estimated_narration_sec = (
+            estimate_speech_duration_sec(narration_text)
+            if narration_text
+            else 0.0
+        )
         dialogue_line_count = len(_dialogue_texts(scene))
         required_dialogue_sec = _required_dialogue_clip_sec(
             estimated_speech_sec, line_count=dialogue_line_count
@@ -994,6 +1054,8 @@ def plan_auto_sequence(
                 duration_sec=float(request.duration_sec),
                 warnings=tuple(warnings),
                 estimated_speech_sec=estimated_speech_sec,
+                narration_text=narration_text,
+                estimated_narration_sec=estimated_narration_sec,
             )
         )
 

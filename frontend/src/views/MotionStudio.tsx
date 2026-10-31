@@ -56,6 +56,7 @@ export const MotionStudioView: React.FC<{
   const [fps, setFps] = useState<24 | 30 | 60>(30);
   const [quality, setQuality] = useState<MotionJobQuality>('standard');
   const [includeDialogueAudio, setIncludeDialogueAudio] = useState(false);
+  const [includeNarrationAudio, setIncludeNarrationAudio] = useState(false);
   const [scriptText, setScriptText] = useState(SAMPLE_SCRIPT);
   const [requestText, setRequestText] = useState('{}');
   const [preview, setPreview] = useState<MotionPreview | MotionAutoPreview | null>(null);
@@ -94,6 +95,7 @@ export const MotionStudioView: React.FC<{
         quality,
         brand_label: 'SIDD STUDIO',
         include_dialogue_audio: mode === 'render' && includeDialogueAudio,
+        include_narration_audio: mode === 'render' && includeNarrationAudio,
       };
     }
 
@@ -160,8 +162,8 @@ export const MotionStudioView: React.FC<{
       onNotify(
         isAuto
           ? mode === 'render'
-            ? includeDialogueAudio
-              ? 'Auto-mapper video with local dialogue audio queued. The voice MP4 will appear in the inline player below.'
+            ? includeDialogueAudio || includeNarrationAudio
+              ? 'Auto-mapper video with local speech audio queued. The voice MP4 will appear in the inline player below.'
               : 'Auto-mapper video queued. The combined MP4 will appear in the inline player below.'
             : 'Auto-mapper build-only job queued.'
           : mode === 'render'
@@ -351,7 +353,31 @@ export const MotionStudioView: React.FC<{
                   </span>
                   <span className="mt-1 block text-[11px] leading-relaxed text-slate-400">
                     Generate local Piper/eSpeak voices for parsed dialogue and mux them into the
-                    final MP4. Render mode only; scenes without dialogue stay silent.
+                    final MP4. Render mode only.
+                  </span>
+                </span>
+              </label>
+              <label
+                htmlFor="include-narration-audio"
+                className={`mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 ${
+                  mode !== 'render' ? 'cursor-not-allowed opacity-50' : ''
+                }`}
+              >
+                <input
+                  id="include-narration-audio"
+                  type="checkbox"
+                  checked={includeNarrationAudio}
+                  disabled={mode !== 'render'}
+                  onChange={(e) => setIncludeNarrationAudio(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-amber-400"
+                />
+                <span>
+                  <span className="flex items-center gap-1.5 text-xs font-bold text-white">
+                    <Volume2 className="h-4 w-4 text-amber-300" /> Narrate Non-dialogue Scenes
+                  </span>
+                  <span className="mt-1 block text-[11px] leading-relaxed text-slate-400">
+                    Read each title/narrative sentence with the local narrator voice and retime its
+                    clip to the measured speech. Dialogue scenes are never narrated a second time.
                   </span>
                 </span>
               </label>
@@ -444,8 +470,8 @@ export const MotionStudioView: React.FC<{
             Rendering runs the locally configured HyperFrames {selectedTemplate?.hyperframes_version || '0.8.220'} CLI with inline
             strict variables, then verifies the MP4 from disk. In Auto mode, each clip is rendered and
             verified first, then the combined MP4 is verified again before the job completes.
-            {isAuto && includeDialogueAudio && mode === 'render'
-              ? ' Parsed dialogue is then synthesized locally, muxed as AAC, and the final voice MP4 is verified with its audio stream.'
+            {isAuto && (includeDialogueAudio || includeNarrationAudio) && mode === 'render'
+              ? ' Selected dialogue/narration is measured and synthesized locally, muxed as AAC, and the final voice MP4 is verified with its audio stream.'
               : ''}
           </div>
         </section>
@@ -578,6 +604,8 @@ export const MotionStudioView: React.FC<{
                     'build_manifest',
                     'parsed_scenes',
                     'render_log',
+                    'speech_audio_wav',
+                    'speech_audio_json',
                     'dialogue_audio_wav',
                     'dialogue_audio_json',
                     'verification_json',
@@ -604,9 +632,12 @@ export const MotionStudioView: React.FC<{
                   const verification = job.output_paths?.verification as
                     | Record<string, any>
                     | undefined;
-                  const dialogueAudio = job.output_paths?.dialogue_audio as
+                  const speechAudio = (job.output_paths?.speech_audio ||
+                    job.output_paths?.dialogue_audio) as
                     | {
                         line_count?: number;
+                        dialogue_line_count?: number;
+                        narration_line_count?: number;
                         engines?: string[];
                         lines?: Array<Record<string, any>>;
                       }
@@ -614,7 +645,8 @@ export const MotionStudioView: React.FC<{
                   const verificationStreams = Array.isArray(verification?.streams)
                     ? (verification.streams as Array<Record<string, any>>)
                     : [];
-                  const hasDialogueAudio =
+                  const hasSpeechAudio =
+                    Boolean(job.output_paths?.has_speech_audio) ||
                     Boolean(job.output_paths?.has_dialogue_audio) ||
                     verificationStreams.some((stream) => stream.type === 'audio');
                   return (
@@ -628,6 +660,7 @@ export const MotionStudioView: React.FC<{
                           <span className="block truncate text-sm font-bold text-white">
                             {String(job.payload?.template || 'motion')} · {String(job.payload?.mode || 'render')}
                             {job.payload?.include_dialogue_audio ? ' · dialogue audio' : ''}
+                            {job.payload?.include_narration_audio ? ' · narration audio' : ''}
                           </span>
                         </span>
                         <span className="flex shrink-0 items-center gap-2">
@@ -667,11 +700,14 @@ export const MotionStudioView: React.FC<{
                                     {String(verification.fps ?? '—')}fps · {String(verification.duration_sec ?? '—')}s
                                   </span>
                                 )}
-                                {hasDialogueAudio && (
+                                {hasSpeechAudio && (
                                   <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/15 px-2 py-1.5 font-mono text-[10px] text-emerald-200">
-                                    <Volume2 className="h-3 w-3" /> Dialogue audio · AAC
-                                    {dialogueAudio?.line_count
-                                      ? ` · ${dialogueAudio.line_count} lines`
+                                    <Volume2 className="h-3 w-3" /> Speech audio · AAC
+                                    {speechAudio?.line_count
+                                      ? ` · ${speechAudio.line_count} lines`
+                                      : ''}
+                                    {speechAudio?.narration_line_count
+                                      ? ` · ${speechAudio.narration_line_count} narrated`
                                       : ''}
                                   </span>
                                 )}
@@ -697,16 +733,16 @@ export const MotionStudioView: React.FC<{
                             </div>
                           )}
 
-                          {dialogueAudio?.lines && dialogueAudio.lines.length > 0 && (
+                          {speechAudio?.lines && speechAudio.lines.length > 0 && (
                             <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
                               <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-200">
-                                <Volume2 className="h-3.5 w-3.5" /> Local dialogue audio
-                                {dialogueAudio.engines?.length
-                                  ? ` · ${dialogueAudio.engines.join(', ')}`
+                                <Volume2 className="h-3.5 w-3.5" /> Local speech audio
+                                {speechAudio.engines?.length
+                                  ? ` · ${speechAudio.engines.join(', ')}`
                                   : ''}
                               </div>
                               <div className="mt-2 space-y-1.5">
-                                {dialogueAudio.lines.map((line, index) => (
+                                {speechAudio.lines.map((line, index) => (
                                   <div
                                     key={`${String(line.clip_id)}-${index}`}
                                     className="rounded-md bg-slate-900/80 px-2 py-1.5 text-[11px] text-slate-300"

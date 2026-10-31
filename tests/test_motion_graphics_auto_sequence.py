@@ -59,6 +59,7 @@ def test_auto_sequence_build_only_creates_four_projects(tmp_path: Path) -> None:
 def test_dialogue_audio_timeline_places_parser_dialogue(tmp_path: Path) -> None:
     assert service._speaker_voice_id("Bilal", "Guard your left flank!") == "en_male_heroic"
     assert service._speaker_voice_id("Zara", "Ready!") == "en_female_warm"
+    assert service._speaker_voice_id("Narrator", "World War II began.") == "en_narrator_deep"
 
     plan = service.plan_auto_sequence(E2E_SCRIPT)
 
@@ -155,6 +156,119 @@ def test_measure_dialogue_durations_uses_actual_synth_results(
     assert (
         tmp_path / "preflight" / "audio-preflight" / "clip-01-line-01.wav"
     ).is_file()
+
+
+MIXED_NARRATION_SCRIPT = """Title: The Global Conflict
+World War II was the deadliest conflict in human history.
+Bilal says: 'We must hold the line at all costs!'"""
+
+
+def test_measure_speech_durations_includes_narration_and_dialogue(
+    tmp_path: Path,
+) -> None:
+    plan = service.plan_auto_sequence(MIXED_NARRATION_SCRIPT)
+    durations_by_text = {
+        "The Global Conflict": 1.2,
+        "World War II was the deadliest conflict in human history.": 3.4,
+        "We must hold the line at all costs!": 2.2,
+    }
+
+    def fake_synth(
+        text: str,
+        *,
+        speaker: str,
+        output_path: str | Path,
+        video_fps: int = 30,
+    ) -> dict[str, Any]:
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-preflight-wav")
+        return {
+            "duration_sec": durations_by_text[text],
+            "engine_used": "fake-local-tts",
+            "voice_id": f"fake-{speaker.lower()}",
+            "voice_model": f"fake-{speaker.lower()}.onnx",
+            "wav_path": str(path),
+        }
+
+    measured = service._measure_speech_durations(
+        plan,
+        tmp_path / "mixed-preflight",
+        video_fps=30,
+        synth_line=fake_synth,
+        include_dialogue_audio=True,
+        include_narration_audio=True,
+    )
+
+    assert measured == {
+        "clip-01": (1.2,),
+        "clip-02": (3.4,),
+        "clip-03": (2.2,),
+    }
+    assert (
+        tmp_path
+        / "mixed-preflight"
+        / "audio-preflight"
+        / "clip-01-narration-01.wav"
+    ).is_file()
+
+
+def test_speech_timeline_narrates_non_dialogue_scenes_from_the_start(
+    tmp_path: Path,
+) -> None:
+    plan = service.plan_auto_sequence(MIXED_NARRATION_SCRIPT)
+
+    def fake_synth(
+        text: str,
+        *,
+        speaker: str,
+        output_path: str | Path,
+        video_fps: int = 30,
+    ) -> dict[str, Any]:
+        path = Path(output_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"fake-line-wav")
+        return {
+            "samples": np.full(4410, 0.25, dtype=np.float32),
+            "sample_rate": 44100,
+            "duration_sec": 0.1,
+            "engine_used": "fake-local-tts",
+            "voice_id": f"fake-{speaker.lower()}",
+            "voice_model": f"fake-{speaker.lower()}.onnx",
+            "normalized_text": text,
+            "wav_path": str(path),
+        }
+
+    metadata = service.build_dialogue_audio_timeline(
+        plan,
+        tmp_path / "mixed-audio",
+        video_fps=30,
+        synth_line=fake_synth,
+        include_dialogue_audio=True,
+        include_narration_audio=True,
+    )
+
+    assert metadata is not None
+    assert metadata["line_count"] == 3
+    assert metadata["narration_line_count"] == 2
+    assert metadata["dialogue_line_count"] == 1
+    assert metadata["first_speech_start_sec"] == 0.15
+    assert [line["speech_kind"] for line in metadata["lines"]] == [
+        "narration",
+        "narration",
+        "dialogue",
+    ]
+    assert [line["speaker"] for line in metadata["lines"]] == [
+        "Narrator",
+        "Narrator",
+        "Bilal",
+    ]
+    assert [line["text"] for line in metadata["lines"]] == [
+        "The Global Conflict",
+        "World War II was the deadliest conflict in human history.",
+        "We must hold the line at all costs!",
+    ]
+    assert [line["start_sec"] for line in metadata["lines"]] == [0.15, 3.15, 6.15]
 
 
 def test_auto_sequence_render_branch_with_fake_renderer(

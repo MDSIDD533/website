@@ -141,9 +141,44 @@ def test_measured_dialogue_retiming_shrinks_clips_without_repeating() -> None:
     assert retimed.measured_speech_sec == 21.756
     assert retimed.to_dict()["measured_speech_sec"] == 21.756
     assert all(
-        any("retimed to measured dialogue" in warning for warning in clip.warnings)
+        any("retimed to measured speech" in warning for warning in clip.warnings)
         for clip in retimed.clips
     )
+
+
+def test_mixed_script_exposes_narration_without_duplicating_dialogue() -> None:
+    plan = plan_auto_sequence(
+        "Title: The Global Conflict\n"
+        "World War II was the deadliest conflict in human history.\n"
+        "Bilal says: 'We must hold the line at all costs!'"
+    )
+
+    assert [clip.template for clip in plan.clips] == ["title", "title", "quote"]
+    assert plan.clips[0].request["title_lines"] == ["The Global", "Conflict"]
+    assert plan.clips[0].narration_text == "The Global Conflict"
+    assert plan.clips[0].estimated_narration_sec == 1.091
+    assert (
+        plan.clips[1].narration_text
+        == "World War II was the deadliest conflict in human history."
+    )
+    assert plan.clips[1].estimated_narration_sec == 3.856
+    # Dialogue is already spoken by Bilal; do not also narrate the raw
+    # ``Bilal says: ...`` sentence.
+    assert plan.clips[2].narration_text == ""
+    assert plan.clips[2].estimated_speech_sec == 3.129
+    assert plan.estimated_narration_sec == 4.947
+    assert plan.estimated_total_speech_sec == 8.076
+
+    retimed = retimed_auto_sequence(
+        plan,
+        {"clip-01": (1.25,), "clip-02": (3.75,), "clip-03": (2.25,)},
+    )
+    assert retimed.clips[0].duration_sec == 3.0  # Title template floor.
+    assert retimed.clips[1].duration_sec == 4.25
+    assert retimed.clips[2].duration_sec == 2.75
+    assert retimed.measured_narration_sec == 5.0
+    assert retimed.measured_speech_sec == 7.25
+    assert retimed.to_dict()["estimated_narration_sec"] == 4.947
 
 
 def test_explicit_numeric_pairs_select_data() -> None:

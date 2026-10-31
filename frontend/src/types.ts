@@ -220,6 +220,9 @@ export interface MotionAutoClipPlan {
   warnings: string[];
   estimated_speech_sec?: number;
   measured_speech_sec?: number;
+  narration_text?: string;
+  estimated_narration_sec?: number;
+  measured_narration_sec?: number;
 }
 
 export interface MotionAutoPlan {
@@ -233,6 +236,9 @@ export interface MotionAutoPlan {
   total_duration_sec: number;
   estimated_speech_sec?: number;
   measured_speech_sec?: number;
+  estimated_narration_sec?: number;
+  measured_narration_sec?: number;
+  estimated_total_speech_sec?: number;
   warnings: string[];
 }
 
@@ -242,6 +248,7 @@ export interface MotionAutoPreview {
   fps: number;
   quality: MotionJobQuality;
   include_dialogue_audio?: boolean;
+  include_narration_audio?: boolean;
   scenes: MotionParsedScene[];
   scene_count: number;
   clips: MotionAutoClipPlan[];

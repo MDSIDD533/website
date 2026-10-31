@@ -681,7 +681,15 @@ def _speaker_voice_id(speaker: str, text: str) -> str:
     except Exception:
         language = "en"
 
-    is_female = str(speaker or "").strip().lower() in _FEMALE_DIALOGUE_SPEAKERS
+    normalized_speaker = str(speaker or "").strip().lower()
+    if normalized_speaker in {"narrator", "narration", "voiceover", "voice-over"}:
+        return (
+            "ur_narrator_deep"
+            if language in {"ur", "roman_ur"}
+            else "en_narrator_deep"
+        )
+
+    is_female = normalized_speaker in _FEMALE_DIALOGUE_SPEAKERS
     if language in {"ur", "roman_ur"}:
         return "ur_female_warm" if is_female else "ur_male_heroic"
     return "en_female_warm" if is_female else "en_male_heroic"
@@ -712,7 +720,61 @@ def _synthesize_speech_line(
     )
 
 
-def _measure_dialogue_durations(
+def _clip_speech_entries(
+    clip: Any,
+    scene: Mapping[str, Any],
+    *,
+    include_dialogue_audio: bool = True,
+    include_narration_audio: bool = False,
+) -> tuple[dict[str, str], ...]:
+    """Return the spoken entries owned by one clip, in script order.
+
+    Extracted dialogue is preferred.  Only when a scene has no dialogue can
+    its exact source sentence be used as narration; this prevents reading a
+    line such as ``Bilal says: '...'`` aloud in addition to Bilal's own
+    dialogue.  The narration text normally comes from the auto-plan so the
+    same deterministic copy is used for preflight measurement and final
+    timeline placement.
+    """
+
+    entries: list[dict[str, str]] = []
+    dialogue = scene.get("dialogue") or []
+    if include_dialogue_audio:
+        for entry in dialogue:
+            if not isinstance(entry, Mapping):
+                continue
+            speaker = str(entry.get("speaker") or "Speaker").strip() or "Speaker"
+            text = str(entry.get("line") or "").strip()
+            if text:
+                entries.append(
+                    {
+                        "speaker": speaker,
+                        "line": text,
+                        "speech_kind": "dialogue",
+                    }
+                )
+    if entries:
+        return tuple(entries)
+
+    if include_narration_audio and not dialogue:
+        narration_text = str(getattr(clip, "narration_text", "") or "").strip()
+        if not narration_text:
+            sentence_text = str(getattr(clip, "sentence_text", "") or "").strip()
+            narration_text = re.sub(
+                r"^title\s*:\s*", "", sentence_text, flags=re.IGNORECASE
+            ).strip()
+        if narration_text:
+            entries.append(
+                {
+                    "speaker": "Narrator",
+                    "line": narration_text,
+                    "speech_kind": "narration",
+                }
+            )
+    return tuple(entries)
+
+
+def _measure_speech_durations(
     plan: AutoSequencePlan,
     output_dir: str | Path,
     *,
@@ -720,8 +782,10 @@ def _measure_dialogue_durations(
     synth_line: SpeechLineSynthesizer | None = None,
     on_log: LogCallback | None = None,
     is_cancelled: CancelCheck | None = None,
+    include_dialogue_audio: bool = True,
+    include_narration_audio: bool = False,
 ) -> dict[str, tuple[float, ...]]:
-    """Synthesize dialogue once to measure the real local-TTS durations.
+    """Synthesize planned speech once to measure real local-TTS durations.
 
     The preflight files are kept under ``audio-preflight`` as auditable
     evidence.  Returning one duration per line lets the auto-mapper size
@@ -743,23 +807,30 @@ def _measure_dialogue_durations(
 
     for clip in plan.clips:
         scene = scenes_by_id.get(int(clip.scene_id), {})
-        dialogue = scene.get("dialogue") or []
+        speech_entries = _clip_speech_entries(
+            clip,
+            scene,
+            include_dialogue_audio=include_dialogue_audio,
+            include_narration_audio=include_narration_audio,
+        )
         durations: list[float] = []
 
-        for line_index, entry in enumerate(dialogue, start=1):
+        for line_index, entry in enumerate(speech_entries, start=1):
             if is_cancelled and is_cancelled():
                 raise InterruptedError(
-                    "Auto sequence cancelled during dialogue preflight."
+                    "Auto sequence cancelled during speech preflight."
                 )
-            if not isinstance(entry, Mapping):
-                continue
             speaker = str(entry.get("speaker") or "Speaker").strip() or "Speaker"
             text = str(entry.get("line") or "").strip()
+            speech_kind = str(entry.get("speech_kind") or "dialogue")
             if not text:
                 continue
 
             preflight_dir.mkdir(parents=True, exist_ok=True)
-            line_wav = preflight_dir / f"{clip.clip_id}-line-{line_index:02d}.wav"
+            file_kind = "line" if speech_kind == "dialogue" else speech_kind
+            line_wav = (
+                preflight_dir / f"{clip.clip_id}-{file_kind}-{line_index:02d}.wav"
+            )
             result = synthesize(
                 text,
                 speaker=speaker,
@@ -790,7 +861,7 @@ def _measure_dialogue_durations(
                         duration = 0.0
             if duration <= 0:
                 raise RuntimeError(
-                    "Dialogue preflight produced no measurable audio for "
+                    "Speech preflight produced no measurable audio for "
                     f"{clip.clip_id} line {line_index} ({speaker})."
                 )
 
@@ -801,7 +872,7 @@ def _measure_dialogue_durations(
                 voice_model = str(result.get("voice_model") or "")
                 model_suffix = f" ({voice_model})" if voice_model else ""
                 on_log(
-                    "Measured dialogue for retiming "
+                    f"Measured {speech_kind} for retiming "
                     f"{clip.clip_id}: {speaker} via {engine_used}{model_suffix} "
                     f"= {measured_duration:.3f}s"
                 )
@@ -812,6 +883,29 @@ def _measure_dialogue_durations(
     return measured
 
 
+def _measure_dialogue_durations(
+    plan: AutoSequencePlan,
+    output_dir: str | Path,
+    *,
+    video_fps: int = 30,
+    synth_line: SpeechLineSynthesizer | None = None,
+    on_log: LogCallback | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> dict[str, tuple[float, ...]]:
+    """Backward-compatible dialogue-only preflight measurement."""
+
+    return _measure_speech_durations(
+        plan,
+        output_dir,
+        video_fps=video_fps,
+        synth_line=synth_line,
+        on_log=on_log,
+        is_cancelled=is_cancelled,
+        include_dialogue_audio=True,
+        include_narration_audio=False,
+    )
+
+
 def build_dialogue_audio_timeline(
     plan: AutoSequencePlan,
     output_dir: str | Path,
@@ -819,14 +913,18 @@ def build_dialogue_audio_timeline(
     video_fps: int = 30,
     synth_line: SpeechLineSynthesizer | None = None,
     on_log: LogCallback | None = None,
+    include_dialogue_audio: bool = True,
+    include_narration_audio: bool = False,
 ) -> dict[str, Any] | None:
-    """Create one WAV timeline from parser dialogue in an auto plan.
+    """Create one WAV timeline from planned dialogue/narration speech.
 
-    Dialogue is placed inside the clip that owns its parsed scene, preserving
-    parser order.  Other clips remain silent so the WAV duration matches the
-    planned combined-video duration and can be muxed without re-timing video.
-    Lines that do not fit inside their clip are trimmed and marked as such in
-    the returned metadata rather than silently shifting later scenes.
+    Speech is placed inside the clip that owns its parsed scene, preserving
+    parser order.  Dialogue is preferred; narration is used only for scenes
+    without extracted dialogue when explicitly enabled.  Other clips remain
+    silent so the WAV duration matches the planned combined-video duration
+    and can be muxed without re-timing video.  Lines that do not fit inside
+    their clip are trimmed and marked as such in the returned metadata
+    rather than silently shifting later scenes.
     """
 
     import numpy as np
@@ -859,19 +957,24 @@ def build_dialogue_audio_timeline(
 
     for clip in plan.clips:
         scene = scenes_by_id.get(int(clip.scene_id), {})
-        dialogue = scene.get("dialogue") or []
+        speech_entries = _clip_speech_entries(
+            clip,
+            scene,
+            include_dialogue_audio=include_dialogue_audio,
+            include_narration_audio=include_narration_audio,
+        )
         cursor_sec = DIALOGUE_LEAD_SEC
         clip_lines: list[dict[str, Any]] = []
 
-        for line_index, entry in enumerate(dialogue, start=1):
-            if not isinstance(entry, Mapping):
-                continue
+        for line_index, entry in enumerate(speech_entries, start=1):
             speaker = str(entry.get("speaker") or "Speaker").strip() or "Speaker"
             text = str(entry.get("line") or "").strip()
+            speech_kind = str(entry.get("speech_kind") or "dialogue")
             if not text:
                 continue
 
-            line_wav = audio_dir / f"{clip.clip_id}-line-{line_index:02d}.wav"
+            file_kind = "line" if speech_kind == "dialogue" else speech_kind
+            line_wav = audio_dir / f"{clip.clip_id}-{file_kind}-{line_index:02d}.wav"
             result = synthesize(
                 text,
                 speaker=speaker,
@@ -914,6 +1017,7 @@ def build_dialogue_audio_timeline(
                 "clip_id": clip.clip_id,
                 "scene_id": int(clip.scene_id),
                 "speaker": speaker,
+                "speech_kind": speech_kind,
                 "text": text,
                 "normalized_text": str(result.get("normalized_text") or text),
                 "voice_id": str(result.get("voice_id") or _speaker_voice_id(speaker, text)),
@@ -940,7 +1044,7 @@ def build_dialogue_audio_timeline(
             if on_log:
                 model_suffix = f" ({voice_model})" if voice_model else ""
                 on_log(
-                    f"Generated local dialogue audio for {clip.clip_id}: "
+                    f"Generated local {speech_kind} audio for {clip.clip_id}: "
                     f"{speaker} via {engine_used}{model_suffix} "
                     f"({line_meta['placed_duration_sec']}s at {line_meta['start_sec']}s)"
                 )
@@ -978,6 +1082,14 @@ def build_dialogue_audio_timeline(
         "sample_rate": sample_rate,
         "duration_sec": round(float(total_duration), 3),
         "line_count": len(all_lines),
+        "dialogue_line_count": int(
+            sum(1 for line in all_lines if line.get("speech_kind") == "dialogue")
+        ),
+        "narration_line_count": int(
+            sum(1 for line in all_lines if line.get("speech_kind") == "narration")
+        ),
+        "include_dialogue_audio": bool(include_dialogue_audio),
+        "include_narration_audio": bool(include_narration_audio),
         "engines": sorted(engines),
         "voice_models": sorted(voice_models),
         "speech_duration_sec": placed_speech_sec,
@@ -1204,6 +1316,7 @@ def execute_auto_motion_graphics_sequence(
     quality: str = "standard",
     brand_label: str = "SIDD STUDIO",
     include_dialogue_audio: bool = False,
+    include_narration_audio: bool = False,
     on_progress: ProgressCallback | None = None,
     on_log: LogCallback | None = None,
     on_process: ProcessCallback | None = None,
@@ -1219,34 +1332,40 @@ def execute_auto_motion_graphics_sequence(
     root.mkdir(parents=True, exist_ok=True)
 
     plan = plan_auto_sequence(script_text, brand_label=brand_label)
-    dialogue_retiming: dict[str, Any] | None = None
-    if include_dialogue_audio and mode == "render":
-        measured_dialogue = _measure_dialogue_durations(
+    speech_retiming: dict[str, Any] | None = None
+    include_speech_audio = include_dialogue_audio or include_narration_audio
+    if include_speech_audio and mode == "render":
+        measured_speech = _measure_speech_durations(
             plan,
             root,
             video_fps=int(fps),
             on_log=on_log,
             is_cancelled=is_cancelled,
+            include_dialogue_audio=include_dialogue_audio,
+            include_narration_audio=include_narration_audio,
         )
-        if measured_dialogue:
+        if measured_speech:
             estimated_total = plan.total_duration_sec
             measured_speech_total = round(
-                sum(sum(values) for values in measured_dialogue.values()), 3
+                sum(sum(values) for values in measured_speech.values()), 3
             )
-            plan = retimed_auto_sequence(plan, measured_dialogue)
-            dialogue_retiming = {
+            plan = retimed_auto_sequence(plan, measured_speech)
+            speech_retiming = {
                 "method": "measured_local_tts_preflight",
+                "include_dialogue_audio": bool(include_dialogue_audio),
+                "include_narration_audio": bool(include_narration_audio),
                 "estimated_total_duration_sec": estimated_total,
                 "retimed_total_duration_sec": plan.total_duration_sec,
                 "measured_speech_total_sec": measured_speech_total,
+                "measured_narration_total_sec": plan.measured_narration_sec,
                 "measured_speech_sec_by_clip": {
                     clip_id: list(values)
-                    for clip_id, values in measured_dialogue.items()
+                    for clip_id, values in measured_speech.items()
                 },
             }
             if on_log:
                 on_log(
-                    "Dialogue retiming: estimated total "
+                    "Speech retiming: estimated total "
                     f"{estimated_total:.3f}s -> measured plan "
                     f"{plan.total_duration_sec:.3f}s "
                     f"({measured_speech_total:.3f}s of speech)."
@@ -1316,10 +1435,12 @@ def execute_auto_motion_graphics_sequence(
         "auto_plan_json": str(plan_path),
         "parsed_scenes_json": str(parsed_scenes_path),
         "plan": plan.to_dict(),
-        "dialogue_retiming": dialogue_retiming,
+        "speech_retiming": speech_retiming,
+        "dialogue_retiming": speech_retiming,
         "clips": clip_results,
         "combined_video": None,
         "combined_video_silent": None,
+        "speech_audio": None,
         "dialogue_audio": None,
         "verification": None,
     }
@@ -1457,29 +1578,34 @@ def execute_auto_motion_graphics_sequence(
         }
     )
 
-    if include_dialogue_audio:
+    if include_speech_audio:
         if on_progress:
-            on_progress(97.0, "Generating local dialogue audio")
-        dialogue_audio = build_dialogue_audio_timeline(
+            on_progress(97.0, "Generating local speech audio")
+        speech_audio = build_dialogue_audio_timeline(
             plan,
             root,
             video_fps=int(fps),
             on_log=on_log,
+            include_dialogue_audio=include_dialogue_audio,
+            include_narration_audio=include_narration_audio,
         )
-        if dialogue_audio:
+        if speech_audio:
             for clip_result in clip_results:
-                clip_lines = dialogue_audio.get("clips", {}).get(
+                clip_lines = speech_audio.get("clips", {}).get(
                     str(clip_result.get("clip_id"))
                 )
                 if clip_lines:
+                    clip_result["speech_audio_lines"] = clip_lines
+                    # Preserve the established result key used by existing
+                    # Motion Studio consumers.
                     clip_result["dialogue_audio_lines"] = clip_lines
 
             if on_progress:
-                on_progress(98.5, "Muxing dialogue audio into combined MP4")
+                on_progress(98.5, "Muxing speech audio into combined MP4")
             muxed_path = root / "combined_with_audio.mp4"
             mux_result = mux_audio_into_mp4(
                 combined_path,
-                str(dialogue_audio["audio_wav"]),
+                str(speech_audio["audio_wav"]),
                 muxed_path,
                 on_log=on_log,
                 on_process=on_process,
@@ -1494,9 +1620,12 @@ def execute_auto_motion_graphics_sequence(
                 {
                     "combined_video": str(muxed_path),
                     "combined_video_silent": str(combined_path),
-                    "dialogue_audio": dialogue_audio,
-                    "dialogue_audio_wav": dialogue_audio["audio_wav"],
-                    "dialogue_audio_json": dialogue_audio["audio_json"],
+                    "speech_audio": speech_audio,
+                    "speech_audio_wav": speech_audio["audio_wav"],
+                    "speech_audio_json": speech_audio["audio_json"],
+                    "dialogue_audio": speech_audio,
+                    "dialogue_audio_wav": speech_audio["audio_wav"],
+                    "dialogue_audio_json": speech_audio["audio_json"],
                     "audio_mux": mux_result,
                     "verification_with_audio": final_verification,
                     "verification_with_audio_json": str(
@@ -1506,8 +1635,8 @@ def execute_auto_motion_graphics_sequence(
             )
         elif on_log:
             on_log(
-                "Dialogue audio requested, but the parser found no dialogue "
-                "lines to synthesize."
+                "Speech audio requested, but the parser found no dialogue "
+                "or narration lines to synthesize."
             )
 
     result_payload["elapsed_sec"] = round(time.time() - started, 3)

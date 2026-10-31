@@ -56,6 +56,7 @@ class AutoMotionGraphicsJobRequest(BaseModel):
     quality: Literal["draft", "standard", "high"] = "standard"
     brand_label: str = Field(default="SIDD STUDIO", max_length=36)
     include_dialogue_audio: bool = False
+    include_narration_audio: bool = False
     project_id: str | None = None
 
 
@@ -93,6 +94,7 @@ def _auto_motion_preview_payload(
         "fps": req.fps,
         "quality": req.quality,
         "include_dialogue_audio": req.include_dialogue_audio,
+        "include_narration_audio": req.include_narration_audio,
         "scenes": plan_payload["scenes"],
         "scene_count": plan_payload["scene_count"],
         "clips": plan_payload["clips"],
@@ -170,6 +172,7 @@ def api_enqueue_auto_motion_graphics(
             "quality": req.quality,
             "brand_label": req.brand_label,
             "include_dialogue_audio": req.include_dialogue_audio,
+            "include_narration_audio": req.include_narration_audio,
             "project_id": req.project_id,
         },
     )
