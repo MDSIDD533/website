@@ -76,6 +76,7 @@ BlenderTheme = Literal[
     "space_voyage",
     "ocean_voyage",
     "tech_lab",
+    "jungle_war",
     "nature_valley",
     "history_fort",
     "abstract_shapes",
@@ -86,8 +87,8 @@ class Blender3DJobRequest(BaseModel):
     script_text: str = Field(default="", max_length=20000)
     request: dict[str, Any] = Field(default_factory=dict)
     mode: Literal["build_only", "render"] = "render"
-    fps: Literal[12, 24, 30] = 24
-    quality: Literal["draft", "standard", "high"] = "standard"
+    fps: Literal[12, 15, 20, 24, 30] = 15
+    quality: Literal["turbo", "draft", "standard", "high"] = "turbo"
     duration_sec: float | None = Field(default=None, ge=3.0, le=120.0)
     theme: BlenderTheme = "auto"
     include_captions: bool = True

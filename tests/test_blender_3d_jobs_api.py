@@ -24,36 +24,40 @@ def test_blender_theme_catalog_marks_blender_as_primary(api_client: TestClient) 
         "space_voyage",
         "ocean_voyage",
         "tech_lab",
+        "jungle_war",
         "nature_valley",
         "history_fort",
         "abstract_shapes",
     ]
     default = payload["default_request"]
-    assert default["width"] == 1920
-    assert default["height"] == 1080
-    assert default["fps"] == 24
+    assert default["width"] == 1280
+    assert default["height"] == 720
+    assert default["fps"] == 15
+    assert default["quality"] == "turbo"
+    assert default["camera_move"] == "drone"
     assert default["render_profile"] == {
-        "samples": 3,
-        "noise_threshold": 0.12,
+        "samples": 1,
+        "noise_threshold": 0.3,
         "denoiser": "OPENIMAGEDENOISE",
-        "denoise_prefilter": "FAST",
+        "denoise_prefilter": "NONE",
         "denoise_quality": "FAST",
-        "max_bounces": 1,
+        "denoise_input_passes": "RGB",
+        "max_bounces": 0,
         "diffuse_bounces": 0,
         "glossy_bounces": 0,
-        "encode_crf": 18,
+        "light_sampling_threshold": 0.15,
+        "encode_crf": 23,
+        "encode_preset": "veryfast",
     }
 
 
-def test_blender_preview_selects_ww2_and_native_1080p(api_client: TestClient) -> None:
+def test_blender_preview_selects_ww2_with_turbo_default(api_client: TestClient) -> None:
     response = api_client.post(
         "/api/jobs/blender-3d/preview",
         json={
             "script_text": WW2_SCRIPT,
             "request": {},
             "mode": "render",
-            "fps": 24,
-            "quality": "standard",
             "duration_sec": 18.235,
             "theme": "auto",
             "include_captions": True,
@@ -65,9 +69,11 @@ def test_blender_preview_selects_ww2_and_native_1080p(api_client: TestClient) ->
     assert payload["job_type"] == "blender_3d"
     assert payload["topic"]["theme"] == "ww2_battlefield"
     assert payload["topic"]["confidence"] == 0.98
-    assert payload["request"]["width"] == 1920
-    assert payload["request"]["height"] == 1080
-    assert payload["total_frames"] == 438
+    assert payload["request"]["width"] == 1280
+    assert payload["request"]["height"] == 720
+    assert payload["request"]["fps"] == 15
+    assert payload["request"]["quality"] == "turbo"
+    assert payload["total_frames"] == 274
     assert payload["plan"]["captions"] == [
         "THE GLOBAL CONFLICT",
         "1939 · INVASION",
@@ -88,6 +94,26 @@ def test_blender_preview_can_select_other_topics(api_client: TestClient) -> None
 
     assert response.status_code == 200
     assert response.json()["topic"]["theme"] == "space_voyage"
+
+
+def test_blender_preview_selects_jungle_war(api_client: TestClient) -> None:
+    response = api_client.post(
+        "/api/jobs/blender-3d/preview",
+        json={
+            "script_text": (
+                "Title: Jungle War\n"
+                "A patrol moved through the dark jungle while camouflaged soldiers "
+                "hid in the canopy before a guerrilla ambush in heavy rain."
+            ),
+            "duration_sec": 60,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["topic"]["theme"] == "jungle_war"
+    assert payload["total_frames"] == 900
+    assert payload["request"]["camera_move"] == "drone"
 
 
 def test_blender_invalid_request_is_rejected_before_enqueue(api_client: TestClient) -> None:

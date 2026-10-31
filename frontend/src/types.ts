@@ -178,7 +178,7 @@ export type MotionTemplateId =
   | 'outro'
   | 'adventure3d';
 export type MotionJobMode = 'build_only' | 'render';
-export type MotionJobQuality = 'draft' | 'standard' | 'high';
+export type MotionJobQuality = 'turbo' | 'draft' | 'standard' | 'high';
 
 export interface MotionTemplateInfo {
   id: MotionTemplateId;
@@ -217,6 +217,7 @@ export type BlenderThemeId =
   | 'space_voyage'
   | 'ocean_voyage'
   | 'tech_lab'
+  | 'jungle_war'
   | 'nature_valley'
   | 'history_fort'
   | 'abstract_shapes';

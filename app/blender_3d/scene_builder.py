@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterable
 
 from .planner import Blender3DRequest, THEMES, quality_profile
 
-BUILDER_VERSION = "blender3d-scene-v1"
+BUILDER_VERSION = "blender3d-scene-v2"
 
 
 def _rgba(value: str, alpha: float = 1.0) -> tuple[float, float, float, float]:
@@ -343,7 +343,7 @@ class SceneFactory:
         obj.location = loc
         return obj
 
-    def setup_world_and_lights(self, *, world_strength: float = 0.72, sun_energy: float = 3.0, sun_rotation=(math.radians(48), math.radians(12), math.radians(-32)), sun_color="#FFF1D6") -> None:
+    def setup_world_and_lights(self, *, world_strength: float = 0.72, sun_energy: float = 3.0, sun_rotation=(math.radians(48), math.radians(12), math.radians(-32)), sun_color="#FFF1D6", fill_energy: float = 420.0) -> None:
         bpy = self.bpy
         world = bpy.data.worlds.new("DynamicWorld") if not self.scene.world else self.scene.world
         self.scene.world = world
@@ -359,7 +359,7 @@ class SceneFactory:
         self.collection.objects.link(sun)
         sun.rotation_euler = sun_rotation
         fill_data = bpy.data.lights.new("CameraFill", type="AREA")
-        fill_data.energy = 420
+        fill_data.energy = fill_energy
         fill_data.use_shadow = False
         fill_data.shape = "RECTANGLE"
         fill_data.size = 42
@@ -368,6 +368,53 @@ class SceneFactory:
         self.collection.objects.link(fill)
         fill.location = (0, -52, 28)
         fill.rotation_euler = (math.radians(62), 0, 0)
+
+    def setup_mist_compositor(self, *, color: str = "#2A3D33", max_factor: float = 0.52, start: float = 30.0, depth: float = 100.0) -> None:
+        """Apply depth fog in Blender's compositor instead of fog geometry.
+
+        A Cycles Mist pass is essentially free beside the one-sample Turbo
+        render, creates continuous aerial perspective, and avoids the hard
+        silhouettes/transparent-bounce cost of giant alpha ellipsoids.
+        """
+        scene = self.scene
+        if scene.world:
+            _safe_set(scene.world.mist_settings, "use_mist", True)
+            _safe_set(scene.world.mist_settings, "start", float(start))
+            _safe_set(scene.world.mist_settings, "depth", float(depth))
+            _safe_set(scene.world.mist_settings, "falloff", "QUADRATIC")
+        _safe_set(self.bpy.context.view_layer, "use_pass_mist", True)
+        scene.use_nodes = True
+        tree = scene.node_tree
+        tree.nodes.clear()
+
+        render_layers = tree.nodes.new(type="CompositorNodeRLayers")
+        render_layers.location = (-420, 0)
+        map_range = tree.nodes.new(type="CompositorNodeMapRange")
+        map_range.location = (-180, -190)
+        map_range.inputs[1].default_value = 0.0
+        map_range.inputs[2].default_value = 1.0
+        map_range.inputs[3].default_value = 0.03
+        map_range.inputs[4].default_value = float(max_factor)
+        _safe_set(map_range, "use_clamp", True)
+
+        fog_color = tree.nodes.new(type="CompositorNodeRGB")
+        fog_color.location = (-180, 150)
+        fog_color.outputs[0].default_value = _rgba(color, 1.0)
+
+        mix = tree.nodes.new(type="CompositorNodeMixRGB")
+        mix.location = (40, 0)
+        _safe_set(mix, "blend_type", "MIX")
+        _safe_set(mix, "use_clamp", True)
+
+        composite = tree.nodes.new(type="CompositorNodeComposite")
+        composite.location = (260, 0)
+
+        tree.links.new(render_layers.outputs["Mist"], map_range.inputs[0])
+        tree.links.new(map_range.outputs[0], mix.inputs[0])
+        tree.links.new(render_layers.outputs["Image"], mix.inputs[1])
+        tree.links.new(fog_color.outputs[0], mix.inputs[2])
+        tree.links.new(mix.outputs[0], composite.inputs["Image"])
+        tree.links.new(render_layers.outputs["Alpha"], composite.inputs["Alpha"])
 
     def point_light(self, name: str, loc, color: str, energy: float, parent: Any = None) -> Any:
         data = self.bpy.data.lights.new(name, type="POINT")
@@ -382,39 +429,114 @@ class SceneFactory:
             obj.parent = parent
         return obj
 
-    def setup_camera(self, positions: list[tuple[float, tuple[float, float, float]]], targets: list[tuple[float, tuple[float, float, float]]], lens_pairs: list[tuple[float, float]] | None = None) -> Any:
+    def setup_camera(
+        self,
+        positions: list[tuple[float, tuple[float, float, float]]],
+        targets: list[tuple[float, tuple[float, float, float]]],
+        lens_pairs: list[tuple[float, float]] | None = None,
+        *,
+        focus_pairs: list[tuple[float, float]] | None = None,
+        fstop: float | None = None,
+    ) -> Any:
         bpy = self.bpy
-        target = self.empty("CameraTarget", targets[0][1])
-        camera_data = bpy.data.cameras.new("Blender3DCamera")
-        camera_data.lens = 36
-        camera_data.clip_end = 1000
-        camera = bpy.data.objects.new("Blender3DCamera", camera_data)
-        self.collection.objects.link(camera)
-        camera.location = positions[0][1]
-        constraint = camera.constraints.new(type="TRACK_TO")
-        constraint.target = target
-        constraint.track_axis = "TRACK_NEGATIVE_Z"
-        constraint.up_axis = "UP_Y"
+
+        def _interpolate(points: list[tuple[float, tuple[float, float, float]]], fraction: float) -> tuple[float, float, float]:
+            if not points:
+                return (0.0, 0.0, 0.0)
+            if fraction <= points[0][0]:
+                return tuple(float(value) for value in points[0][1])  # type: ignore[return-value]
+            if fraction >= points[-1][0]:
+                return tuple(float(value) for value in points[-1][1])  # type: ignore[return-value]
+            for (start_fraction, start), (end_fraction, end) in zip(points, points[1:]):
+                if start_fraction <= fraction <= end_fraction:
+                    ratio = 0.0 if end_fraction == start_fraction else (fraction - start_fraction) / (end_fraction - start_fraction)
+                    return tuple(float(start[index] + (end[index] - start[index]) * ratio) for index in range(3))  # type: ignore[return-value]
+            return tuple(float(value) for value in points[-1][1])  # type: ignore[return-value]
 
         if self.request.camera_move == "orbit" and targets:
             center = targets[len(targets) // 2][1]
             orbit_positions = []
             for index, fraction in enumerate((0.0, 0.28, 0.56, 0.82, 1.0)):
                 angle = math.radians(-135 + index * 42)
-                orbit_positions.append((fraction, (center[0] + 48 * math.cos(angle), center[1] + 48 * math.sin(angle), center[2] + 12 + index % 2 * 4)))
+                orbit_positions.append((fraction, (center[0] + 48 * math.cos(angle), center[1] + 48 * math.sin(angle), center[2] + 14 + index % 2 * 4)))
             positions = orbit_positions
             targets = [(fraction, center) for fraction, _ in orbit_positions]
         elif self.request.camera_move == "tracking" and targets:
             center = targets[len(targets) // 2][1]
             targets = [(fraction, center) for fraction, _ in positions]
+        elif self.request.camera_move == "drone" and targets:
+            # Keep authored compositions, but lift low/handheld-feeling keys
+            # into a high aerial path and pull them slightly away from the
+            # target. Explicit Jungle War keys are already above this floor.
+            aerial_positions: list[tuple[float, tuple[float, float, float]]] = []
+            for fraction, position in positions:
+                look_at = _interpolate(targets, fraction)
+                aerial_positions.append(
+                    (
+                        fraction,
+                        (
+                            look_at[0] + (position[0] - look_at[0]) * 1.10,
+                            look_at[1] + (position[1] - look_at[1]) * 1.10,
+                            max(float(position[2]), float(look_at[2]) + 14.0),
+                        ),
+                    )
+                )
+            positions = aerial_positions
+
+        target = self.empty("CameraTarget", targets[0][1])
+        camera_data = bpy.data.cameras.new("Blender3DCamera")
+        camera_data.lens = 36
+        camera_data.clip_start = 0.5
+        camera_data.clip_end = 1000
+        # Real Cycles depth of field, focused on the authored subject plane.
+        # The f-stop is shallow enough to soften the far background without
+        # making the miniature-scale action unreadable at one Turbo sample.
+        _safe_set(camera_data.dof, "use_dof", True)
+        _safe_set(camera_data.dof, "aperture_fstop", float(fstop if fstop is not None else (2.8 if self.theme == "jungle_war" else 3.5)))
+        camera = bpy.data.objects.new("Blender3DCamera", camera_data)
+        self.collection.objects.link(camera)
+        camera.location = positions[0][1]
+        camera["sidd_camera_move"] = self.request.camera_move
+        camera["sidd_camera_style"] = "smooth aerial drone path with Cycles depth of field" if self.request.camera_move == "drone" else self.request.camera_move
+        constraint = camera.constraints.new(type="TRACK_TO")
+        constraint.target = target
+        constraint.track_axis = "TRACK_NEGATIVE_Z"
+        constraint.up_axis = "UP_Y"
 
         self.keys(camera, "location", [(self.at(fraction), position) for fraction, position in positions], "BEZIER")
         self.keys(target, "location", [(self.at(fraction), position) for fraction, position in targets], "BEZIER")
+        for animated in (camera, target):
+            action = getattr(getattr(animated, "animation_data", None), "action", None)
+            if action:
+                for fcurve in action.fcurves:
+                    for point in fcurve.keyframe_points:
+                        _safe_set(point, "handle_left_type", "AUTO_CLAMPED")
+                        _safe_set(point, "handle_right_type", "AUTO_CLAMPED")
+
+        if focus_pairs is None:
+            focus_pairs = []
+            for fraction, position in positions:
+                look_at = _interpolate(targets, fraction)
+                distance = math.dist(position, look_at)
+                focus_pairs.append((fraction, max(1.0, distance * 0.94)))
+        for fraction, distance in focus_pairs:
+            frame = self.frame(self.at(fraction))
+            self.scene.frame_set(frame)
+            _safe_set(camera_data.dof, "focus_distance", float(distance))
+            try:
+                camera_data.keyframe_insert(data_path="dof.focus_distance", frame=frame)
+            except Exception:
+                try:
+                    camera_data.dof.keyframe_insert(data_path="focus_distance", frame=frame)
+                except Exception:
+                    pass
+
         for fraction, lens in (lens_pairs or [(0.0, 35.0), (0.55, 46.0), (1.0, 40.0)]):
             frame = self.frame(self.at(fraction))
             self.scene.frame_set(frame)
             camera_data.lens = lens
             camera_data.keyframe_insert(data_path="lens", frame=frame)
+        self.set_interpolation(camera_data, "BEZIER")
         self.scene.camera = camera
         return camera
 
@@ -563,19 +685,32 @@ class SceneFactory:
             self.move(root, self.at(0.03), self.at(0.97), end, start_location=loc)
         return root
 
-    def make_tree(self, name: str, loc, *, scale: float = 1.0, palm: bool = False) -> Any:
+    def make_tree(
+        self,
+        name: str,
+        loc,
+        *,
+        scale: float = 1.0,
+        palm: bool = False,
+        trunk_material: Any = None,
+        crown_material: Any = None,
+        crown_material_light: Any = None,
+    ) -> Any:
         root = self.empty(name, loc, (0, 0, self.rng.random() * math.tau))
         root.scale = (scale, scale, scale)
+        trunk_mat = trunk_material or self.M["wood"]
+        crown_mat = crown_material or self.M["leaf"]
+        crown_light_mat = crown_material_light or self.M["leaf_light"]
         if palm:
-            trunk = self.cylinder(f"{name}_Trunk", (0.25, 0, 1.55), (0.24, 0.24, 3.1), self.M["wood"], (0, math.radians(-9), 0), root)
+            self.cylinder(f"{name}_Trunk", (0.25, 0, 1.55), (0.24, 0.24, 3.1), trunk_mat, (0, math.radians(-9), 0), root)
             for index in range(5):
                 angle = index * math.tau / 5
-                leaf = self.box(f"{name}_Frond{index}", (0.55 + 0.75 * math.cos(angle), 0.75 * math.sin(angle), 3.18), (1.65, 0.22, 0.06), self.M["leaf"], (0, math.radians(-14), angle), root)
+                leaf = self.box(f"{name}_Frond{index}", (0.55 + 0.75 * math.cos(angle), 0.75 * math.sin(angle), 3.18), (1.65, 0.22, 0.06), crown_mat, (0, math.radians(-14), angle), root)
                 self.oscillate_rotation(leaf, 2, 0.05, 2.2, angle)
             return root
-        self.cylinder(f"{name}_Trunk", (0, 0, 0.9), (0.28, 0.28, 1.8), self.M["wood"], parent=root)
-        self.sphere(f"{name}_CrownA", (0, 0, 2.35), (1.55, 1.55, 1.3), self.M["leaf"], parent=root)
-        self.sphere(f"{name}_CrownB", (0.42, 0.25, 2.0), (1.05, 1.05, 0.95), self.M["leaf_light"], parent=root)
+        self.cylinder(f"{name}_Trunk", (0, 0, 0.9), (0.28, 0.28, 1.8), trunk_mat, parent=root)
+        self.sphere(f"{name}_CrownA", (0, 0, 2.35), (1.55, 1.55, 1.3), crown_mat, parent=root)
+        self.sphere(f"{name}_CrownB", (0.42, 0.25, 2.0), (1.05, 1.05, 0.95), crown_light_mat, parent=root)
         return root
 
     def make_cloud(self, name: str, loc, scale: float, drift: float = 7.0) -> Any:
@@ -840,10 +975,12 @@ class SceneFactory:
         self.box("StageBackdrop", (0, 58, 22), (230, 2, 52), self.M["sky"])
 
     def _generic_camera(self, target=(0, 8, 3)) -> None:
+        # A high, smooth aerial arc rather than the earlier low walk-in move.
         self.setup_camera(
-            [(0.0, (-48, -44, 18)), (0.3, (-28, -34, 12)), (0.58, (0, -27, 8)), (0.8, (25, -19, 9)), (1.0, (43, -11, 14))],
+            [(0.0, (-58, -52, 32)), (0.3, (-34, -44, 24)), (0.58, (0, -38, 19)), (0.8, (30, -30, 22)), (1.0, (52, -20, 30))],
             [(0.0, (-12, target[1], target[2])), (0.35, target), (0.7, (target[0] + 10, target[1], target[2])), (1.0, target)],
-            [(0.0, 34), (0.55, 44), (1.0, 39)],
+            [(0.0, 32), (0.55, 43), (1.0, 37)],
+            fstop=3.5,
         )
 
     def build_finance(self) -> None:
@@ -1041,6 +1178,559 @@ class SceneFactory:
         self.keys(drone, "location", points)
         self._generic_camera((0, 7, 5))
 
+    def build_jungle_war(self) -> None:
+        """Dark aerial rainforest ambush built for the Turbo profile.
+
+        The set is deliberately deep rather than merely wide: a muddy patrol
+        trail and stream recede through several canopy/fog layers while the
+        single continuous camera path stays high above the trees.  Shared
+        low-segment primitives keep the object count far below the coastal
+        WWII set, which matters more than adding expensive Cycles volumetrics
+        at one sample.
+        """
+        self.setup_world_and_lights(
+            world_strength=0.22,
+            sun_energy=1.55,
+            sun_rotation=(math.radians(58), math.radians(16), math.radians(-38)),
+            sun_color="#BFD3C3",
+            fill_energy=75.0,
+        )
+        self.setup_mist_compositor(color="#2A3D33", max_factor=0.52, start=30.0, depth=100.0)
+
+        canopy_dark = self.mat("JungleCanopyDark", "#102B18", roughness=0.98)
+        canopy_mid = self.mat("JungleCanopyMid", "#1E4A28", roughness=0.96)
+        canopy_wet = self.mat("JungleCanopyWet", "#2C6135", roughness=0.9)
+        undergrowth = self.mat("JungleUndergrowth", "#17351F", roughness=0.98)
+        fern = self.mat("JungleFern", "#24552D", roughness=0.95)
+        bark = self.mat("WetBark", "#2E2118", roughness=0.97)
+        bamboo = self.mat("WetBamboo", "#3F5B33", roughness=0.88)
+        camo = self.mat("JungleCamo", "#2E442A", roughness=0.94)
+        camo_dark = self.mat("JungleCamoDark", "#1E2E22", roughness=0.96)
+        mud_metal = self.mat("MuddyMetal", "#343A33", roughness=0.72, metallic=0.22)
+        tarp = self.mat("WetTarp", "#31463A", roughness=0.92)
+        rain_mat = self.mat("RainStreaks", "#B7CCDC", roughness=1.0, alpha=0.34, emission="#8FAFC4", emission_strength=0.28)
+        storm_mat = self.mat("StormCloud", "#39443F", roughness=1.0, alpha=0.62)
+
+        def trail_x(y: float) -> float:
+            return -10.0 + 0.18 * y + 4.0 * math.sin(y * 0.055)
+
+        def stream_y(x: float) -> float:
+            return 22.0 + 3.0 * math.sin(x * 0.05)
+
+        craters = [(-13.0, 3.0), (-2.0, 13.0), (-24.0, -14.0), (10.0, -4.0)]
+
+        def ground_z(x: float, y: float) -> float:
+            z = 0.48 * math.sin(x * 0.045) * math.cos(y * 0.055) + 0.28 * math.sin((x - y) * 0.052)
+            trail_distance = abs(x - trail_x(y))
+            if trail_distance < 5.0:
+                z *= 0.25 + 0.15 * trail_distance
+            stream_distance = abs(y - stream_y(x))
+            if stream_distance < 5.0:
+                z -= 0.62 * (1.0 - stream_distance / 5.0)
+            if y > 30.0:
+                z += (y - 30.0) * 0.022
+            for cx, cy in craters:
+                distance = math.hypot(x - cx, y - cy)
+                if distance < 4.0:
+                    z -= 0.48 * (1.0 - distance / 4.0)
+            return z
+
+        def ground_color(x: float, y: float, z: float):
+            if abs(y - stream_y(x)) < 3.4:
+                return (0.035, 0.115, 0.13, 1)
+            if abs(x - trail_x(y)) < 3.1:
+                return (0.17, 0.105, 0.05, 1)
+            for cx, cy in craters:
+                if math.hypot(x - cx, y - cy) < 3.7:
+                    return (0.075, 0.055, 0.035, 1)
+            variation = 0.018 * math.sin(x * 0.42 + y * 0.31)
+            return (0.04 + variation, 0.115 + variation, 0.048, 1)
+
+        terrain_mat = self.vertex_material("JungleWarVertex", roughness=0.98)
+        self.grid_terrain(
+            "JungleWarTerrain",
+            x_range=(-118, 118),
+            y_range=(-98, 92),
+            nx=68,
+            ny=44,
+            height_fn=ground_z,
+            color_fn=ground_color,
+            material=terrain_mat,
+        )
+        # A very dark apron far below the sculpted terrain prevents the high
+        # opening/pull-back shots from revealing a rectangular world edge.
+        self.box("JungleHorizonGround", (0, 0, -1.7), (560, 560, 0.2), self.mat("JungleHorizon", "#0E2015", roughness=1.0))
+
+        # A segmented dark stream gives the final third a visible crossing
+        # without an animated fluid/volume simulation.
+        stream_mat = self.mat("JungleStream", "#183632", roughness=0.24, metallic=0.04)
+        for index, x in enumerate(range(-70, 76, 10)):
+            y = stream_y(float(x))
+            angle = math.atan(0.15 * math.cos(x * 0.05))
+            self.box(
+                f"JungleStreamSegment{index}",
+                (x, y, ground_z(float(x), y) + 0.13),
+                (10.4, 5.2, 0.08),
+                stream_mat,
+                (0, 0, angle),
+            )
+        # Fallen-tree bridge across the stream on the patrol route.
+        bridge_x = trail_x(22.0)
+        self.beam(
+            "StreamLogBridge",
+            (bridge_x - 1.0, 15.5, ground_z(bridge_x, 15.5) + 0.5),
+            (bridge_x + 0.6, 29.0, ground_z(bridge_x, 29.0) + 0.55),
+            0.72,
+            bark,
+        )
+
+        # Far canopy silhouettes and storm clouds close the horizon.  There is
+        # no flat backdrop plane, so the high camera sees depth instead of a wall.
+        for index in range(24):
+            x = -94 + index * 8.1 + self.rng.uniform(-2.0, 2.0)
+            y = 62 + self.rng.uniform(-4.0, 9.0)
+            z = ground_z(x, y) + self.rng.uniform(4.0, 7.0)
+            self.sphere(
+                f"DistantCanopy{index}",
+                (x, y, z),
+                (self.rng.uniform(10, 16), self.rng.uniform(7, 11), self.rng.uniform(5, 8)),
+                canopy_dark if index % 3 else canopy_mid,
+            )
+        for index, (x, y, z, scale) in enumerate(((-58, 48, 25, 7), (-12, 58, 29, 9), (38, 50, 26, 7), (76, 62, 31, 8))):
+            cloud = self.empty(f"StormCloud{index}", (x, y, z))
+            cloud.scale = (scale, scale, scale)
+            for puff_index, offset in enumerate(((-1.1, 0, 0), (0, 0.15, 0.18), (1.1, -0.1, 0))):
+                self.sphere(f"StormCloudPuff{index}_{puff_index}", offset, (1.7, 0.85, 0.55), storm_mat, parent=cloud)
+            self.move(cloud, 0, self.duration, (x + 7 + index * 1.5, y, z), start_location=(x, y, z), interpolation="LINEAR")
+
+        # Main jungle.  Positions leave the patrol/stream corridor readable
+        # from the drone while crowding the frame edges and background.
+        tree_pairs = [(canopy_dark, canopy_mid), (canopy_mid, canopy_wet), (undergrowth, canopy_mid)]
+        tree_positions: list[tuple[float, float, float]] = []
+        attempts = 0
+        while len(tree_positions) < 68 and attempts < 600:
+            attempts += 1
+            x = self.rng.uniform(-84, 84)
+            y = self.rng.uniform(-57, 57)
+            if abs(x - trail_x(y)) < 6.4 or abs(y - stream_y(x)) < 4.2:
+                continue
+            scale = self.rng.uniform(1.45, 2.9)
+            tree_positions.append((x, y, scale))
+        for index, (x, y, scale) in enumerate(tree_positions):
+            crown, crown_light = tree_pairs[index % len(tree_pairs)]
+            self.make_tree(
+                f"JungleTree{index}",
+                (x, y, ground_z(x, y) - 0.08),
+                scale=scale,
+                palm=(index % 7 == 3),
+                trunk_material=bark,
+                crown_material=crown,
+                crown_material_light=crown_light,
+            )
+
+        hero_trees = [(-19.0, -5.0, 2.75), (5.0, 2.0, 3.0), (-17.0, 13.0, 2.85), (10.0, 16.0, 2.65)]
+        for index, (x, y, scale) in enumerate(hero_trees):
+            self.make_tree(
+                f"AmbushHeroTree{index}",
+                (x, y, ground_z(x, y) - 0.08),
+                scale=scale,
+                trunk_material=bark,
+                crown_material=canopy_dark,
+                crown_material_light=canopy_mid,
+            )
+
+        # Undergrowth, ferns, bamboo, vines, rocks and fallen logs create
+        # concealment at soldier height and dark texture below the canopy.
+        for index in range(86):
+            x = self.rng.uniform(-82, 82)
+            y = self.rng.uniform(-56, 56)
+            if abs(x - trail_x(y)) < 3.4:
+                x += 4.5 if x >= trail_x(y) else -4.5
+            self.sphere(
+                f"JungleBush{index}",
+                (x, y, ground_z(x, y) + 0.32),
+                (self.rng.uniform(1.1, 2.9), self.rng.uniform(0.9, 2.3), self.rng.uniform(0.55, 1.15)),
+                undergrowth if index % 3 else canopy_mid,
+            )
+        for index in range(42):
+            x = self.rng.uniform(-72, 72)
+            y = self.rng.uniform(-52, 50)
+            if abs(x - trail_x(y)) < 3.2:
+                continue
+            self.cone(f"JungleFern{index}", (x, y, ground_z(x, y) + 0.35), (1.15, 1.15, 0.8), fern)
+        for cluster in range(8):
+            cx = self.rng.uniform(-62, 62)
+            cy = self.rng.uniform(-44, 44)
+            if abs(cx - trail_x(cy)) < 7:
+                cx += 10
+            for stalk in range(5):
+                x = cx + self.rng.uniform(-0.9, 0.9)
+                y = cy + self.rng.uniform(-0.9, 0.9)
+                height = self.rng.uniform(4.5, 7.5)
+                self.cylinder(
+                    f"Bamboo{cluster}_{stalk}",
+                    (x, y, ground_z(x, y) + height / 2),
+                    (0.18, 0.18, height),
+                    bamboo,
+                    (math.radians(self.rng.uniform(-3, 3)), math.radians(self.rng.uniform(-3, 3)), 0),
+                )
+        vine_mat = self.mat("HangingVine", "#1B3323", roughness=0.98)
+        for index, (x, y, scale) in enumerate(tree_positions[:28]):
+            top = (x + self.rng.uniform(-1.2, 1.2), y + self.rng.uniform(-1.0, 1.0), ground_z(x, y) + 2.15 * scale)
+            bottom = (top[0] + self.rng.uniform(-0.5, 0.5), top[1] + self.rng.uniform(-0.5, 0.5), ground_z(x, y) + 0.25)
+            self.beam(f"HangingVine{index}", top, bottom, 0.055, vine_mat)
+        for index in range(13):
+            x = self.rng.uniform(-65, 65)
+            y = self.rng.uniform(-50, 48)
+            if abs(x - trail_x(y)) < 4:
+                continue
+            angle = self.rng.uniform(0, math.tau)
+            end = (x + 5.0 * math.cos(angle), y + 5.0 * math.sin(angle))
+            self.beam(
+                f"FallenLog{index}",
+                (x, y, ground_z(x, y) + 0.32),
+                (end[0], end[1], ground_z(end[0], end[1]) + 0.32),
+                0.58,
+                bark,
+            )
+        for index in range(22):
+            x = self.rng.uniform(-74, 74)
+            y = self.rng.uniform(-54, 54)
+            self.box(
+                f"JungleRock{index}",
+                (x, y, ground_z(x, y) + 0.22),
+                (self.rng.uniform(0.7, 1.8), self.rng.uniform(0.6, 1.4), self.rng.uniform(0.35, 0.8)),
+                self.M["stone"],
+                (0, 0, self.rng.uniform(0, math.tau)),
+            )
+
+        # Reflective mud puddles punctuate the trail in the rain.
+        for index, y in enumerate((-38, -28, -18, -9, -1, 7, 14, 27, 34)):
+            x = trail_x(float(y)) + self.rng.uniform(-0.9, 0.9)
+            self.cylinder(
+                f"TrailPuddle{index}",
+                (x, y, ground_z(x, float(y)) + 0.07),
+                (self.rng.uniform(2.2, 3.6), self.rng.uniform(1.1, 1.9), 0.045),
+                stream_mat,
+            )
+
+        # A burnt-out supply truck, half sunk beside the route.  It is built
+        # statically rather than reusing the moving-truck helper, whose wheels
+        # would otherwise spin while the wreck remains in the mud.
+        wreck_y = -21.0
+        wreck_x = trail_x(wreck_y) - 5.4
+        wreck_z = ground_z(wreck_x, wreck_y)
+        wreck = self.empty("BurntSupplyTruck", (wreck_x, wreck_y, wreck_z + 0.22), (math.radians(4), 0, math.radians(76)))
+        self.box("WreckCab", (1.8, 0, 0.95), (1.6, 1.75, 1.3), mud_metal, parent=wreck)
+        self.box("WreckWindshield", (2.55, 0, 1.22), (0.08, 1.3, 0.55), self.M["black"], parent=wreck)
+        self.box("WreckBed", (-0.95, 0, 1.0), (3.7, 2.0, 1.2), camo_dark, parent=wreck)
+        self.box("WreckCanvas", (-1.0, 0, 1.72), (3.1, 1.75, 0.38), self.M["black"], (0, math.radians(-4), 0), wreck)
+        for wheel_index, (wx, wy) in enumerate(((-1.9, -1.05), (-1.9, 1.05), (1.7, -1.05), (1.7, 1.05))):
+            self.cylinder(f"WreckWheel{wheel_index}", (wx, wy, 0.36), (0.72, 0.2, 0.72), self.M["black"], (math.radians(90), 0, 0), wreck)
+        for index in range(6):
+            ratio = index / 5
+            smoke = self.sphere(
+                f"WreckSmoke{index}",
+                (wreck_x + math.sin(index * 1.4) * 0.5, wreck_y + 0.4, wreck_z + 2.3 + ratio * 6.0),
+                (0.9 + ratio * 1.8, 0.75 + ratio * 1.4, 0.65 + ratio * 1.1),
+                self.M["smoke"] if index % 2 == 0 else self.M["smoke_light"],
+            )
+            self.oscillate_location_z(smoke, 0.18, 3.4, index * 0.7)
+        self.point_light("WreckFireLight", (wreck_x, wreck_y, wreck_z + 1.7), "#FF7A2E", 180)
+
+        # Survival shelter near the stream: camo tarp, crates, bedrolls and a
+        # small warm lantern that gives the dark final section one focal glow.
+        camp_x, camp_y = 17.0, 32.0
+        camp_z = ground_z(camp_x, camp_y)
+        camp = self.empty("SurvivalCamp", (camp_x, camp_y, camp_z), (0, 0, math.radians(-18)))
+        for index, (px, py) in enumerate(((-2.4, -1.7), (2.4, -1.7), (-2.4, 1.7), (2.4, 1.7))):
+            self.cylinder(f"CampPole{index}", (px, py, 1.15), (0.11, 0.11, 2.3), bark, parent=camp)
+        self.box("CampTarp", (0, 0, 2.42), (5.7, 4.3, 0.12), tarp, (math.radians(5), math.radians(-3), 0), camp)
+        for index, (px, py, pz) in enumerate(((-1.5, -0.7, 0.35), (-0.45, -0.7, 0.35), (-1.0, -0.7, 1.0), (1.4, 0.8, 0.32))):
+            self.box(f"CampCrate{index}", (px, py, pz), (0.9, 0.75, 0.62), self.M["wood"] if index < 3 else camo, parent=camp)
+        for index, px in enumerate((-1.2, 0.7)):
+            self.box(f"CampBedroll{index}", (px, 1.05, 0.17), (1.65, 0.62, 0.2), camo_dark, parent=camp)
+        lantern = self.sphere("CampLantern", (1.8, -1.2, 0.62), (0.28, 0.28, 0.34), self.M["flash"], parent=camp)
+        self.oscillate_rotation(lantern, 2, 0.05, 1.7)
+        self.point_light("CampLanternLight", (1.8, -1.2, 0.72), "#FFB45E", 95, camp)
+
+        # Hidden mortar pit and two tripwire lines reinforce the guerrilla
+        # warfare story without turning this back into an open WWII field.
+        mortar_x, mortar_y = -25.0, 9.0
+        mortar_z = ground_z(mortar_x, mortar_y)
+        mortar = self.empty("HiddenMortar", (mortar_x, mortar_y, mortar_z), (0, 0, math.radians(18)))
+        self.box("MortarBase", (0, 0, 0.18), (1.15, 1.0, 0.24), mud_metal, parent=mortar)
+        self.cylinder("MortarTube", (0.15, 0, 0.92), (0.17, 0.17, 1.55), self.M["dark"], (0, math.radians(-28), 0), mortar)
+        for index in range(16):
+            angle = math.radians(-75 + index * 10)
+            radius = 2.25
+            self.sphere(
+                f"MortarSandbag{index}",
+                (radius * math.cos(angle), radius * math.sin(angle), 0.28 + (index % 2) * 0.3),
+                (0.72, 0.46, 0.32),
+                self.M["sand"],
+                (0, 0, angle),
+                mortar,
+            )
+        wire_mat = self.mat("TripWire", "#69706B", roughness=0.5, metallic=0.55)
+        for wire_index, wire_y in enumerate((-2.0, 12.0)):
+            left_x = trail_x(wire_y) - 3.4
+            right_x = trail_x(wire_y) + 3.4
+            self.beam(
+                f"TripWire{wire_index}",
+                (left_x, wire_y, ground_z(left_x, wire_y) + 0.28),
+                (right_x, wire_y, ground_z(right_x, wire_y) + 0.28),
+                0.025,
+                wire_mat,
+            )
+            for side, wx in enumerate((left_x, right_x)):
+                self.cylinder(f"TripWireStake{wire_index}_{side}", (wx, wire_y, ground_z(wx, wire_y) + 0.25), (0.07, 0.07, 0.55), bark)
+
+        # Tree platforms with soldiers literally hidden in the branches.
+        platform_specs = [hero_trees[0], hero_trees[1], hero_trees[2]]
+        for index, (x, y, scale) in enumerate(platform_specs):
+            base_z = ground_z(x, y)
+            platform_z = base_z + 1.48 * scale
+            platform_x = x + (1.35 if index != 1 else -1.25)
+            platform_y = y - 1.05
+            self.box(f"TreePlatform{index}", (platform_x, platform_y, platform_z), (2.3, 1.65, 0.16), bark)
+            self.beam(
+                f"TreePlatformBrace{index}",
+                (x, y, base_z + 0.55 * scale),
+                (platform_x, platform_y, platform_z - 0.08),
+                0.11,
+                bark,
+            )
+            heading = math.radians(16) if platform_x < trail_x(platform_y) else math.radians(164)
+            self.make_person(
+                f"CanopySoldier{index}",
+                (platform_x, platform_y, platform_z + 0.1),
+                heading,
+                uniform=camo if index % 2 == 0 else camo_dark,
+                scale=0.94,
+                phase=index * 1.3,
+                move_distance=0,
+            )
+            # Leaf screens break up each silhouette from the aerial camera.
+            for leaf_index, (ox, oy, oz) in enumerate(((0.8, -0.65, 0.65), (-0.85, 0.45, 0.8), (0.15, 0.8, 1.05))):
+                self.sphere(
+                    f"CanopyCamo{index}_{leaf_index}",
+                    (platform_x + ox, platform_y + oy, platform_z + oz),
+                    (0.95, 0.82, 0.62),
+                    canopy_dark if leaf_index % 2 == 0 else canopy_mid,
+                )
+
+        # Ground ambush party, partially screened by bushes on both banks.
+        hidden_specs: list[tuple[float, float, float]] = []
+        for index, (y, side) in enumerate(((-4, -1), (-1, 1), (2, -1), (5, 1), (8, -1), (11, 1), (14, -1), (17, 1))):
+            x = trail_x(float(y)) + side * self.rng.uniform(5.2, 8.0)
+            z = ground_z(x, float(y))
+            hidden_specs.append((x, float(y), z))
+            heading = 0.0 if side < 0 else math.pi
+            self.make_person(
+                f"HiddenSoldier{index}",
+                (x, y, z),
+                heading,
+                uniform=camo_dark if index % 2 else camo,
+                scale=0.96,
+                phase=index * 0.8,
+                move_distance=0,
+            )
+            self.sphere(
+                f"HiddenSoldierCover{index}",
+                (x - side * 0.75, y - 0.35, z + 0.42),
+                (1.35, 1.05, 0.72),
+                undergrowth,
+            )
+
+        # Main patrol follows the winding trail and crosses the ambush zone
+        # around 54% of the shot, then continues toward the stream/camp.
+        patrol_heading = math.radians(76)
+        patrol_fractions = (0.0, 0.22, 0.45, 0.68, 0.86, 1.0)
+        for index in range(5):
+            start_y = -42.0 - index * 3.1
+            lateral = (-0.85, 0.75, -0.25, 1.05, 0.1)[index]
+            start = (trail_x(start_y) + lateral, start_y, ground_z(trail_x(start_y) + lateral, start_y))
+            soldier = self.make_person(
+                f"JunglePatrol{index}",
+                start,
+                patrol_heading,
+                uniform=camo if index % 2 == 0 else camo_dark,
+                phase=index * 0.9,
+                move_distance=0,
+            )
+            path: list[tuple[float, tuple[float, float, float]]] = []
+            for fraction in patrol_fractions:
+                y = start_y + 78.0 * fraction
+                x = trail_x(y) + lateral
+                path.append((self.at(fraction), (x, y, ground_z(x, y))))
+            self.keys(soldier, "location", path, "BEZIER")
+
+        # A smaller opposing group retreats into the background after contact.
+        for index in range(3):
+            start_y = 31.0 - index * 2.6
+            lateral = (1.2, -1.0, 0.4)[index]
+            start = (trail_x(start_y) + lateral, start_y, ground_z(trail_x(start_y) + lateral, start_y))
+            soldier = self.make_person(
+                f"GuerrillaRetreat{index}",
+                start,
+                math.radians(104),
+                uniform=camo_dark,
+                phase=2.0 + index,
+                move_distance=0,
+            )
+            path = []
+            for fraction in (0.0, 0.48, 0.72, 1.0):
+                travel = 0.0 if fraction <= 0.48 else (fraction - 0.48) / 0.52 * 22.0
+                y = start_y + travel
+                x = trail_x(y) + lateral + travel * 0.22
+                path.append((self.at(fraction), (x, y, ground_z(x, y))))
+            self.keys(soldier, "location", path, "BEZIER")
+
+        # Rain is four looping sheets of shared-mesh streaks.  It remains
+        # legible from above but does not add a particle simulation or volume.
+        for group in range(4):
+            rain_root = self.empty(f"RainSheet{group}", (0, 0, 0), (math.radians(10), 0, math.radians(-5)))
+            for streak in range(34):
+                self.cylinder(
+                    f"RainStreak{group}_{streak}",
+                    (self.rng.uniform(-78, 78), self.rng.uniform(-62, 62), self.rng.uniform(0.5, 16.5)),
+                    (0.035, 0.035, self.rng.uniform(1.35, 2.1)),
+                    rain_mat,
+                    parent=rain_root,
+                )
+            phase = group * 0.19
+            self.keys(
+                rain_root,
+                "location",
+                [(phase, (0, 0, 0)), (phase + 0.82, (2.2, 0, -16.0))],
+                "LINEAR",
+            )
+            self.set_cycles(rain_root)
+
+        # Fog is supplied by the depth-based Mist compositor configured at
+        # the start of this builder; no transparent fog geometry is created.
+
+        # Birds burst out of the canopy as contact begins.
+        for index in range(7):
+            start = (-8 + index * 2.2, 3 + (index % 3) * 2.0, 7.0 + index * 0.35)
+            bird = self.cone(f"JungleBird{index}", start, (0.95, 0.27, 0.24), self.M["black"], (0, math.radians(-90), 0))
+            end = (start[0] + 34 + index * 3, start[1] + 15, start[2] + 8)
+            self.keys(bird, "location", [(self.at(0.52), start), (self.at(0.65), end)], "BEZIER")
+
+        # Timed ambush effects.  Unlike the looping battlefield explosions,
+        # these keys stay tiny before/after the contact section.
+        def burst(name: str, loc, start_fraction: float, scale: float = 1.0) -> None:
+            parts = [
+                self.sphere(f"{name}Core", (loc[0], loc[1], loc[2] + 0.55), (0.08, 0.08, 0.08), self.M["fire"]),
+                self.cone(f"{name}Flame", (loc[0], loc[1], loc[2] + 0.95), (0.08, 0.08, 0.08), self.M["flash"]),
+                self.sphere(f"{name}Smoke", (loc[0] + 0.25, loc[1], loc[2] + 1.3), (0.08, 0.08, 0.08), self.M["smoke_light"]),
+            ]
+            targets = [(1.45 * scale, 1.45 * scale, 1.12 * scale), (0.72 * scale, 0.72 * scale, 1.75 * scale), (1.7 * scale, 1.7 * scale, 1.32 * scale)]
+            for part, target in zip(parts, targets):
+                self.keys(
+                    part,
+                    "scale",
+                    [
+                        (0.0, (0.08, 0.08, 0.08)),
+                        (self.at(start_fraction), (0.08, 0.08, 0.08)),
+                        (self.at(min(1.0, start_fraction + 0.006)), target),
+                        (self.at(min(1.0, start_fraction + 0.024)), tuple(value * 0.34 for value in target)),
+                        (self.at(min(1.0, start_fraction + 0.045)), (0.08, 0.08, 0.08)),
+                        (self.duration, (0.08, 0.08, 0.08)),
+                    ],
+                )
+
+        burst("TrailExplosion", (trail_x(4.0) + 1.0, 4.0, ground_z(trail_x(4.0), 4.0)), 0.565, 1.08)
+        burst("StreamExplosion", (trail_x(15.0) - 1.2, 15.0, ground_z(trail_x(15.0), 15.0)), 0.76, 0.88)
+
+        for index, (x, y, z) in enumerate(hidden_specs[:6]):
+            side = -1 if x < trail_x(y) else 1
+            flash_loc = (x - side * 0.62, y - 0.15, z + 1.08)
+            flash = self.cone(
+                f"AmbushMuzzleFlash{index}",
+                flash_loc,
+                (0.07, 0.07, 0.07),
+                self.M["flash"],
+                (0, math.radians(-90 if side < 0 else 90), 0),
+            )
+            pairs: list[tuple[float, tuple[float, float, float]]] = [(0.0, (0.07, 0.07, 0.07))]
+            for pulse in range(5):
+                start = 0.545 + index * 0.011 + pulse * 0.038
+                if start > 0.82:
+                    break
+                pairs.extend(
+                    [
+                        (self.at(start), (0.07, 0.07, 0.07)),
+                        (self.at(start + 0.0035), (0.58, 0.58, 1.05)),
+                        (self.at(start + 0.011), (0.07, 0.07, 0.07)),
+                    ]
+                )
+            pairs.append((self.duration, (0.07, 0.07, 0.07)))
+            self.keys(flash, "scale", pairs, "BEZIER")
+
+        for index in range(6):
+            y = -1.0 + index * 3.0
+            start_x = trail_x(y) - (5.0 if index % 2 == 0 else -5.0)
+            end_x = trail_x(y) + (2.0 if index % 2 == 0 else -2.0)
+            z = ground_z(start_x, y) + 1.05
+            tracer = self.sphere(f"AmbushTracer{index}", (start_x, y, z), (0.02, 0.02, 0.02), self.M["flash"])
+            self.keys(
+                tracer,
+                "scale",
+                [
+                    (0.0, (0.02, 0.02, 0.02)),
+                    (self.at(0.54), (0.02, 0.02, 0.02)),
+                    (self.at(0.545), (1.25, 0.055, 0.055)),
+                    (self.at(0.78), (1.25, 0.055, 0.055)),
+                    (self.at(0.785), (0.02, 0.02, 0.02)),
+                    (self.duration, (0.02, 0.02, 0.02)),
+                ],
+            )
+            delay = index * 0.009
+            self.keys(
+                tracer,
+                "location",
+                [
+                    (self.at(0.545 + delay), (start_x, y, z)),
+                    (self.at(0.565 + delay), (end_x, y + 0.4, z - 0.08)),
+                    (self.at(0.568 + delay), (start_x, y, z)),
+                    (self.at(0.62 + delay), (start_x, y, z)),
+                    (self.at(0.64 + delay), (end_x, y + 0.4, z - 0.08)),
+                    (self.at(0.643 + delay), (start_x, y, z)),
+                    (self.at(0.78), (start_x, y, z)),
+                ],
+                "LINEAR",
+            )
+
+        # One uninterrupted aerial move: opening canopy reveal, patrol track,
+        # ambush reveal, stream crossing, then a high pull-back over the camp.
+        self.setup_camera(
+            [
+                (0.0, (-64, -72, 34)),
+                (0.16, (-46, -58, 27)),
+                (0.32, (-24, -46, 21)),
+                (0.48, (6, -36, 18)),
+                (0.62, (24, -25, 20)),
+                (0.76, (20, -10, 25)),
+                (0.88, (-10, -18, 34)),
+                (1.0, (-38, -36, 42)),
+            ],
+            [
+                (0.0, (-20, -32, 2)),
+                (0.16, (-16, -20, 2)),
+                (0.32, (-12, -8, 2)),
+                (0.48, (-8, 2, 2)),
+                (0.62, (-4, 10, 2)),
+                (0.76, (-1, 20, 2)),
+                (0.88, (0, 28, 2)),
+                (1.0, (0, 30, 2)),
+            ],
+            [(0.0, 30), (0.3, 36), (0.55, 43), (0.78, 39), (1.0, 33)],
+            focus_pairs=[(0.0, 70), (0.16, 57), (0.32, 46), (0.48, 45), (0.62, 50), (0.76, 45), (0.88, 60), (1.0, 90)],
+            fstop=2.0,
+        )
+
     def build_nature(self) -> None:
         self._generic_stage()
         terrain_mat = self.vertex_material("ValleyVertex", roughness=0.96)
@@ -1206,8 +1896,20 @@ class SceneFactory:
         _safe_set(scene.render, "simplify_subdivision_render", 0)
         _safe_set(scene.display_settings, "display_device", "sRGB")
         _safe_set(scene.view_settings, "view_transform", "Filmic")
-        _safe_set(scene.view_settings, "look", "Medium Contrast")
-        _safe_set(scene.view_settings, "exposure", 0.08 if self.theme not in {"space_voyage", "tech_lab", "abstract_shapes"} else 0.22)
+        _safe_set(scene.view_settings, "look", "High Contrast" if self.theme == "jungle_war" else "Medium Contrast")
+        if self.theme == "jungle_war":
+            # Filmic -0.24 EV plus the dark palette and Mist-pass compositor
+            # supplies the requested moody grade while keeping soldiers and
+            # the muddy trail readable.
+            _safe_set(scene.view_settings, "exposure", -0.24)
+            _safe_set(scene.view_settings, "gamma", 0.96)
+            if scene.world:
+                _safe_set(scene.world.mist_settings, "use_mist", True)
+                _safe_set(scene.world.mist_settings, "start", 32.0)
+                _safe_set(scene.world.mist_settings, "depth", 95.0)
+                _safe_set(scene.world.mist_settings, "falloff", "QUADRATIC")
+        else:
+            _safe_set(scene.view_settings, "exposure", 0.08 if self.theme not in {"space_voyage", "tech_lab", "abstract_shapes"} else 0.22)
         cycles = scene.cycles
         _safe_set(cycles, "device", "CPU")
         _safe_set(cycles, "use_adaptive_sampling", True)
@@ -1218,7 +1920,7 @@ class SceneFactory:
         _safe_set(cycles, "denoiser", profile["denoiser"])
         _safe_set(cycles, "denoising_prefilter", profile["denoise_prefilter"])
         _safe_set(cycles, "denoising_quality", profile["denoise_quality"])
-        _safe_set(cycles, "denoising_input_passes", "RGB_ALBEDO")
+        _safe_set(cycles, "denoising_input_passes", profile.get("denoise_input_passes", "RGB_ALBEDO"))
         _safe_set(cycles, "denoising_use_gpu", False)
         _safe_set(cycles, "max_bounces", int(profile["max_bounces"]))
         _safe_set(cycles, "diffuse_bounces", int(profile["diffuse_bounces"]))
@@ -1230,8 +1932,8 @@ class SceneFactory:
         _safe_set(cycles, "caustics_refractive", False)
         _safe_set(cycles, "blur_glossy", 1.0)
         _safe_set(cycles, "sample_clamp_indirect", 1.0)
-        _safe_set(cycles, "light_sampling_threshold", 0.08 if self.request.quality == "draft" else 0.05 if self.request.quality == "standard" else 0.01)
-        # Benchmarked on the native-1080p battlefield frame: FORWARD + Fast GI
+        _safe_set(cycles, "light_sampling_threshold", float(profile.get("light_sampling_threshold", 0.05)))
+        # Benchmarked on the procedural battlefield frames: FORWARD + Fast GI
         # was faster than MIS for this sun/area-light, low-bounce stylized set.
         _safe_set(cycles, "direct_light_sampling_type", "FORWARD_PATH_TRACING")
         _safe_set(cycles, "use_light_tree", True)
@@ -1241,9 +1943,17 @@ class SceneFactory:
         _safe_set(cycles, "use_auto_tile", True)
         _safe_set(cycles, "tile_size", 1024)
         _safe_set(self.bpy.context.view_layer.cycles, "use_denoising", True)
+        camera_data = getattr(scene.camera, "data", None)
+        camera_dof = getattr(camera_data, "dof", None)
         return {
             "engine": "CYCLES",
             "device": "CPU",
+            "camera_move": self.request.camera_move,
+            "camera_depth_of_field": {
+                "enabled": bool(getattr(camera_dof, "use_dof", False)),
+                "fstop": float(getattr(camera_dof, "aperture_fstop", 0.0) or 0.0),
+                "focus_distance": float(getattr(camera_dof, "focus_distance", 0.0) or 0.0),
+            },
             "width": int(self.request.width),
             "height": int(self.request.height),
             "resolution_percentage": 100,
@@ -1260,6 +1970,7 @@ class SceneFactory:
             "space_voyage": self.build_space,
             "ocean_voyage": self.build_ocean,
             "tech_lab": self.build_tech,
+            "jungle_war": self.build_jungle_war,
             "nature_valley": self.build_nature,
             "history_fort": self.build_history_fort,
             "abstract_shapes": self.build_abstract,

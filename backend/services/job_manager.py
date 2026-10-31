@@ -966,8 +966,8 @@ class JobManager:
         encode_result = encode_blender_frames(
             frames_dir=frames_dir,
             output_path=output_mp4,
-            fps=int(request.get("fps") or 24),
-            quality=str(request.get("quality") or "standard"),
+            fps=int(request.get("fps") or 15),
+            quality=str(request.get("quality") or "turbo"),
             captions_path=built.captions_path,
             on_log=_on_log,
             on_process=_on_process,

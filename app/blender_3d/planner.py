@@ -7,24 +7,44 @@ from typing import Any
 
 from app.script_parser import parse_script
 
-PLANNER_VERSION = "blender3d-plan-v1"
-DEFAULT_WIDTH = 1920
-DEFAULT_HEIGHT = 1080
-DEFAULT_FPS = 24
+PLANNER_VERSION = "blender3d-plan-v2"
+DEFAULT_WIDTH = 1280
+DEFAULT_HEIGHT = 720
+DEFAULT_FPS = 15
+DEFAULT_QUALITY = "turbo"
 QUALITY_PROFILES: dict[str, dict[str, Any]] = {
-    # Native 1920x1080 is kept at 100% scale.  The speed win comes from
-    # adaptive sampling, a low sample ceiling, OIDN denoise and very small
-    # light-path budgets instead of silently shrinking the render.
+    # Turbo is the website default because it was measured end-to-end rather
+    # than guessed: the 15s WWII proof used 1280x720, 15fps, one adaptive
+    # Cycles sample, RGB-only fast OIDN, zero indirect bounces and a veryfast
+    # CRF-23 encode. Resolution/FPS remain request fields so an explicit
+    # caller can still choose a slower deliverable.
+    "turbo": {
+        "samples": 1,
+        "noise_threshold": 0.3,
+        "denoiser": "OPENIMAGEDENOISE",
+        "denoise_prefilter": "NONE",
+        "denoise_quality": "FAST",
+        "denoise_input_passes": "RGB",
+        "max_bounces": 0,
+        "diffuse_bounces": 0,
+        "glossy_bounces": 0,
+        "light_sampling_threshold": 0.15,
+        "encode_crf": 23,
+        "encode_preset": "veryfast",
+    },
     "draft": {
         "samples": 2,
         "noise_threshold": 0.2,
         "denoiser": "OPENIMAGEDENOISE",
         "denoise_prefilter": "FAST",
         "denoise_quality": "FAST",
+        "denoise_input_passes": "RGB_ALBEDO",
         "max_bounces": 1,
         "diffuse_bounces": 0,
         "glossy_bounces": 0,
+        "light_sampling_threshold": 0.08,
         "encode_crf": 20,
+        "encode_preset": "medium",
     },
     "standard": {
         "samples": 3,
@@ -32,10 +52,13 @@ QUALITY_PROFILES: dict[str, dict[str, Any]] = {
         "denoiser": "OPENIMAGEDENOISE",
         "denoise_prefilter": "FAST",
         "denoise_quality": "FAST",
+        "denoise_input_passes": "RGB_ALBEDO",
         "max_bounces": 1,
         "diffuse_bounces": 0,
         "glossy_bounces": 0,
+        "light_sampling_threshold": 0.05,
         "encode_crf": 18,
+        "encode_preset": "medium",
     },
     "high": {
         "samples": 6,
@@ -43,10 +66,13 @@ QUALITY_PROFILES: dict[str, dict[str, Any]] = {
         "denoiser": "OPENIMAGEDENOISE",
         "denoise_prefilter": "ACCURATE",
         "denoise_quality": "HIGH",
+        "denoise_input_passes": "RGB_ALBEDO_NORMAL",
         "max_bounces": 2,
         "diffuse_bounces": 1,
         "glossy_bounces": 1,
+        "light_sampling_threshold": 0.01,
         "encode_crf": 16,
+        "encode_preset": "medium",
     },
 }
 
@@ -112,6 +138,14 @@ THEMES: dict[str, ThemeInfo] = {
         default_captions=("TECH LAB", "DATA ONLINE", "ROBOT ASSIST"),
         palette={"sky": "#071820", "ground": "#10222B", "accent": "#35D0D8", "water": "#1A5266"},
     ),
+    "jungle_war": ThemeInfo(
+        id="jungle_war",
+        label="Jungle War",
+        environment="jungle_war",
+        description="Dark rain-soaked jungle ambush with a patrol, camouflaged soldiers in the canopy, fog, a stream crossing and survival camp.",
+        default_captions=("JUNGLE WAR", "HIDDEN IN THE CANOPY", "THE AMBUSH", "SURVIVE THE JUNGLE"),
+        palette={"sky": "#24352C", "ground": "#14251A", "accent": "#C98A3D", "water": "#243C34"},
+    ),
     "nature_valley": ThemeInfo(
         id="nature_valley",
         label="Nature Valley",
@@ -157,8 +191,8 @@ class Blender3DRequest:
     fps: int = DEFAULT_FPS
     width: int = DEFAULT_WIDTH
     height: int = DEFAULT_HEIGHT
-    quality: str = "standard"
-    camera_move: str = "cinematic"
+    quality: str = DEFAULT_QUALITY
+    camera_move: str = "drone"
     intensity: float = 1.0
     include_captions: bool = True
     seed: int = 1939
@@ -168,12 +202,12 @@ class Blender3DRequest:
             raise ValueError(f"Unsupported Blender theme: {self.theme}")
         if self.quality not in QUALITY_PROFILES:
             raise ValueError(f"Unsupported Blender quality profile: {self.quality}")
-        if self.camera_move not in {"cinematic", "orbit", "tracking"}:
+        if self.camera_move not in {"drone", "cinematic", "orbit", "tracking"}:
             raise ValueError(f"Unsupported camera move: {self.camera_move}")
         if not (3.0 <= float(self.duration_sec) <= 120.0):
             raise ValueError("duration_sec must be between 3 and 120 seconds")
-        if int(self.fps) not in {12, 24, 30}:
-            raise ValueError("fps must be one of 12, 24 or 30")
+        if int(self.fps) not in {12, 15, 20, 24, 30}:
+            raise ValueError("fps must be one of 12, 15, 20, 24 or 30")
         if int(self.width) < 320 or int(self.height) < 180 or int(self.width) % 2 or int(self.height) % 2:
             raise ValueError("Blender resolution must use even dimensions of at least 320x180")
         if not (0.25 <= float(self.intensity) <= 2.0):
@@ -200,8 +234,8 @@ class Blender3DRequest:
             fps=int(raw.get("fps") or DEFAULT_FPS),
             width=int(raw.get("width") or DEFAULT_WIDTH),
             height=int(raw.get("height") or DEFAULT_HEIGHT),
-            quality=str(raw.get("quality") or "standard"),
-            camera_move=str(raw.get("camera_move") or "cinematic"),
+            quality=str(raw.get("quality") or DEFAULT_QUALITY),
+            camera_move=str(raw.get("camera_move") or "drone"),
             intensity=float(raw.get("intensity") or 1.0),
             include_captions=bool(raw.get("include_captions", True)),
             seed=int(raw.get("seed") or 1939),
@@ -291,6 +325,16 @@ _CUE_PATTERNS: dict[str, tuple[tuple[str, str], ...]] = {
         ("fighter planes", r"\bfighter\s+(?:plane|aircraft)s?\b|\bbomber(?:s)?\b"),
         ("warships", r"\bwarship(?:s)?\b|\bbattleship(?:s)?\b"),
     ),
+    "jungle_war": (
+        ("jungle war", r"\bjungle\s+war(?:fare)?\b|\bforest\s+war(?:fare)?\b"),
+        ("guerrilla", r"\bguerrilla(?:s)?\b|\bguerilla(?:s)?\b"),
+        ("ambush", r"\bambush(?:ed|es|ing)?\b"),
+        ("jungle", r"\bjungle(?:s)?\b|\brain\s*forest(?:s)?\b|\brainforest(?:s)?\b"),
+        ("forest", r"\bforest(?:s)?\b|\bwoodland(?:s)?\b"),
+        ("camouflage", r"\bcamouflage(?:d)?\b|\bhidden\s+soldiers?\b|\bcanopy\b"),
+        ("patrol", r"\bpatrol(?:s|led|ling)?\b"),
+        ("survival", r"\bsurviv(?:al|e|ed|ors?|ing)\b"),
+    ),
     "finance": (
         ("dollar", r"\bdollar(?:s)?\b|\busd\b"),
         ("money", r"\bmoney\b|\bcurrency\b|\bcurrencies\b|\bpais(?:a|ay)\b|\bdaulat\b"),
@@ -370,6 +414,7 @@ def classify_script_topic(script_text: str, scenes: list[dict[str, Any]] | None 
     scene_list = scenes or []
     ww2 = _cue_matches(text, "ww2_specific")
     war = _cue_matches(text, "war_general")
+    jungle_war = _cue_matches(text, "jungle_war")
     parser_locations = {
         str(scene.get("environment") or scene.get("location") or "")
         for scene in scene_list
@@ -396,6 +441,13 @@ def classify_script_topic(script_text: str, scenes: list[dict[str, Any]] | None 
     if strong_ww2_phrase or (historical_cluster and war) or (len(ww2) >= 2 and len(war) >= 2):
         reasons.extend(["ww2_specific_cues", "ww2_precedence_over_generic_topics"])
         return _decision("ww2_battlefield", ww2 + war, reasons, 0.98 if strong_ww2_phrase else 0.92)
+    jungle_place = any(cue in jungle_war for cue in ("jungle war", "jungle", "forest")) or "jungle" in parser_locations
+    jungle_tactics = any(cue in jungle_war for cue in ("jungle war", "guerrilla", "ambush", "camouflage", "patrol"))
+    if jungle_place and (jungle_tactics or len(war) >= 2 or "fight" in parser_actions):
+        reasons.extend(["jungle_war_cues", "jungle_war_precedence_over_generic_battlefield"])
+        if "jungle" in parser_locations and "parser:jungle" not in jungle_war:
+            jungle_war.append("parser:jungle")
+        return _decision("jungle_war", jungle_war + war, reasons, 0.96 if jungle_tactics else 0.88)
     if (len(war) >= 2 and ("battlefield" in parser_locations or "fight" in parser_actions)) or len(war) >= 3:
         reasons.append("battlefield_cues")
         return _decision("ww2_battlefield", ww2 + war, reasons, 0.78)
@@ -465,6 +517,22 @@ def derive_captions(script_text: str, theme: str, title: str, sentences: list[st
             captions.append("WAR DECLARED")
         if any(phrase in text for phrase in ("europe and the pacific", "land, sea", "land · sea", "land sea and air")):
             captions.append("LAND · SEA · AIR")
+        for fallback in THEMES[theme].default_captions:
+            if fallback not in captions:
+                captions.append(fallback)
+            if len(captions) >= 4:
+                break
+        return captions[:4]
+
+    if theme == "jungle_war":
+        text = script_text.lower()
+        captions = [_clean_caption(title or "Jungle War")]
+        if any(word in text for word in ("canopy", "branches", "trees", "camouflage", "hidden")):
+            captions.append("HIDDEN IN THE CANOPY")
+        if "ambush" in text:
+            captions.append("THE AMBUSH")
+        if any(word in text for word in ("survive", "survival", "survivors", "shelter", "endure")):
+            captions.append("SURVIVE THE JUNGLE")
         for fallback in THEMES[theme].default_captions:
             if fallback not in captions:
                 captions.append(fallback)
@@ -572,6 +640,8 @@ def plan_blender_3d(
         warnings.append("Script is empty; the selected/default procedural theme will be rendered without script beats.")
     if topic.theme == "ww2_battlefield" and requested.theme == "auto":
         warnings.append("WWII cues were detected, so the large Blender battlefield scene was selected.")
+    if topic.theme == "jungle_war" and requested.theme == "auto":
+        warnings.append("Jungle-war cues were detected, so the dark aerial rainforest ambush scene was selected.")
     return Blender3DPlan(
         planner_version=PLANNER_VERSION,
         script_text=script,

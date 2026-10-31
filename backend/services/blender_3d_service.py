@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from app.blender_3d.planner import Blender3DRequest, plan_blender_3d, theme_infos
+from app.blender_3d.planner import Blender3DRequest, plan_blender_3d, quality_profile, theme_infos
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BLENDER_RUNTIME = Path("/tmp/blender-runtime/bin/python")
@@ -128,8 +128,8 @@ def write_captions_ass(plan: dict[str, Any], output_path: Path) -> Path | None:
     if not segments:
         return None
     request = plan.get("request") or {}
-    width = int(request.get("width") or 1920)
-    height = int(request.get("height") or 1080)
+    width = int(request.get("width") or 1280)
+    height = int(request.get("height") or 720)
     font_size = max(24, round(height * 0.041))
     lines = [
         "[Script Info]",
@@ -549,7 +549,7 @@ def encode_blender_frames(
     frames_dir: str | Path,
     output_path: str | Path,
     fps: int,
-    quality: str = "standard",
+    quality: str = "turbo",
     captions_path: str | Path | None = None,
     on_log: LogCallback | None = None,
     on_process: ProcessCallback | None = None,
@@ -563,7 +563,12 @@ def encode_blender_frames(
         raise RuntimeError(f"No Blender PNG frames found in {frames}")
     output = Path(output_path).expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    profile = {"draft": 20, "standard": 18, "high": 16}.get(quality, 18)
+    try:
+        profile = quality_profile(quality)
+    except KeyError:
+        profile = quality_profile("turbo")
+    encode_crf = int(profile.get("encode_crf") or 23)
+    encode_preset = str(profile.get("encode_preset") or "veryfast")
     filters: list[str] = []
     captions_burned = False
     if captions_path is not None:
@@ -596,9 +601,9 @@ def encode_blender_frames(
         "-c:v",
         "libx264",
         "-preset",
-        "medium",
+        encode_preset,
         "-crf",
-        str(profile),
+        str(encode_crf),
         "-r",
         str(fps),
         "-movflags",
@@ -644,7 +649,9 @@ def encode_blender_frames(
         "output_path": str(output),
         "frame_count": len(frame_files),
         "fps": fps,
-        "crf": profile,
+        "crf": encode_crf,
+        "preset": encode_preset,
+        "quality": quality,
         "captions_burned": captions_burned,
         "elapsed_sec": round(time.time() - started, 3),
         "log_tail": tail[-20:],

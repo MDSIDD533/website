@@ -119,11 +119,14 @@ def test_encode_blender_frames_with_captions(tmp_path: Path) -> None:
         frames_dir=frames,
         output_path=tmp_path / "encoded.mp4",
         fps=12,
-        quality="draft",
+        quality="turbo",
         captions_path=built.captions_path,
     )
 
     assert result["frame_count"] == 6
+    assert result["crf"] == 23
+    assert result["preset"] == "veryfast"
+    assert result["quality"] == "turbo"
     assert result["captions_burned"] is True
     assert Path(result["output_path"]).stat().st_size > 0
 
