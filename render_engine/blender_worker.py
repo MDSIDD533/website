@@ -411,6 +411,134 @@ def render_animated_scene(spec: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _dynamic_frame_files(frames_dir: Path) -> list[Path]:
+    return sorted(frames_dir.glob("frame_*.png")) if frames_dir.is_dir() else []
+
+
+def render_dynamic_3d_scene(spec: dict[str, Any]) -> dict[str, Any]:
+    """Build and optionally render a script-selected procedural Blender scene.
+
+    The full sequence uses one ``render(animation=True)`` call rather than
+    hundreds of still calls.  Blender's own ``Saved: ...frame_####.png`` log
+    lines are streamed by the backend service for frame-level progress, while
+    persistent Cycles data avoids repeating setup work for every frame.
+    """
+    import bpy  # type: ignore
+
+    from app.blender_3d.scene_builder import build_dynamic_scene
+
+    t0 = time.time()
+    operation = str(spec.get("operation") or "render").lower()
+    if operation not in {"build_only", "render", "still"}:
+        raise ValueError(f"Unsupported dynamic Blender operation: {operation}")
+    plan = spec.get("plan") or {}
+    if not isinstance(plan, dict) or not plan:
+        raise ValueError("Dynamic Blender spec requires a non-empty plan")
+
+    print("SIDD_STAGE:building_dynamic_blender_scene", flush=True)
+    metadata = build_dynamic_scene(plan)
+    scene = bpy.context.scene
+    total_frames = int(scene.frame_end - scene.frame_start + 1)
+    thumbnail_fraction = float(spec.get("thumbnail_fraction") or 0.58)
+    thumbnail_frame = int(scene.frame_start + max(0.0, min(1.0, thumbnail_fraction)) * max(0, total_frames - 1))
+
+    blend_path = Path(spec["blend_path"]) if spec.get("blend_path") else None
+    thumbnail_path = Path(spec["thumbnail_path"]) if spec.get("thumbnail_path") else None
+    frames_dir = Path(spec["frames_dir"]) if spec.get("frames_dir") else None
+    still_path = Path(spec["output_png"]) if spec.get("output_png") else thumbnail_path
+
+    if operation == "render":
+        if frames_dir is None:
+            raise ValueError("Dynamic Blender render requires frames_dir")
+        frames_dir.mkdir(parents=True, exist_ok=True)
+        # Remove stale PNGs from this exact frames directory so count checks
+        # cannot pass on an older sequence.
+        for old_frame in _dynamic_frame_files(frames_dir):
+            old_frame.unlink()
+        scene.render.filepath = str(frames_dir / "frame_")
+    elif still_path is not None:
+        still_path.parent.mkdir(parents=True, exist_ok=True)
+        scene.render.filepath = str(still_path)
+
+    if thumbnail_path is not None:
+        thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+    if blend_path is not None:
+        blend_path.parent.mkdir(parents=True, exist_ok=True)
+        scene.frame_set(thumbnail_frame)
+        print("SIDD_STAGE:saving_blend_file", flush=True)
+        bpy.ops.wm.save_as_mainfile(filepath=str(blend_path))
+        if not blend_path.is_file():
+            raise RuntimeError(f"Blender failed to save .blend at {blend_path}")
+
+    frame_files: list[Path] = []
+    rendered_still: Path | None = None
+    if operation in {"build_only", "still"}:
+        if still_path is None:
+            raise ValueError("Dynamic Blender still/build_only operation requires thumbnail_path or output_png")
+        still_frame = int(spec.get("still_frame") or thumbnail_frame)
+        still_frame = max(scene.frame_start, min(scene.frame_end, still_frame))
+        print(f"SIDD_STAGE:rendering_blender_still_frame_{still_frame}", flush=True)
+        scene.frame_set(still_frame)
+        scene.render.filepath = str(still_path)
+        bpy.ops.render.render(write_still=True)
+        if not still_path.is_file():
+            raise RuntimeError(f"Blender failed to write still at {still_path}")
+        rendered_still = still_path
+        if thumbnail_path is not None and thumbnail_path != still_path:
+            shutil.copy2(still_path, thumbnail_path)
+        print(f"SIDD_FRAME:1/1", flush=True)
+    else:
+        assert frames_dir is not None
+        print(f"SIDD_STAGE:raytracing_blender_frames (0/{total_frames})", flush=True)
+        scene.render.filepath = str(frames_dir / "frame_")
+        bpy.ops.render.render(animation=True)
+        frame_files = _dynamic_frame_files(frames_dir)
+        if len(frame_files) != total_frames:
+            raise RuntimeError(
+                f"Blender animation produced {len(frame_files)} frame files, expected {total_frames}"
+            )
+        if thumbnail_path is not None:
+            thumb_source = frames_dir / f"frame_{thumbnail_frame:04d}.png"
+            if not thumb_source.is_file():
+                thumb_source = frame_files[len(frame_files) // 2]
+            shutil.copy2(thumb_source, thumbnail_path)
+        print(f"SIDD_FRAME:{total_frames}/{total_frames}", flush=True)
+
+    cycles = scene.cycles
+    return {
+        "operation": operation,
+        "blender_version": bpy.app.version_string,
+        "background": bool(bpy.app.background),
+        "metadata": metadata,
+        "blend_path": str(blend_path) if blend_path else None,
+        "blend_exists": bool(blend_path and blend_path.is_file()),
+        "thumbnail_path": str(thumbnail_path) if thumbnail_path else None,
+        "thumbnail_exists": bool(thumbnail_path and thumbnail_path.is_file()),
+        "output_png": str(rendered_still) if rendered_still else None,
+        "frames_dir": str(frames_dir) if frames_dir else None,
+        "frame_count": len(frame_files),
+        "frame_start": int(scene.frame_start),
+        "frame_end": int(scene.frame_end),
+        "thumbnail_frame": thumbnail_frame,
+        "render": {
+            "engine": scene.render.engine,
+            "device": getattr(cycles, "device", None),
+            "width": int(scene.render.resolution_x),
+            "height": int(scene.render.resolution_y),
+            "resolution_percentage": int(scene.render.resolution_percentage),
+            "fps": int(scene.render.fps),
+            "samples": int(getattr(cycles, "samples", 0)),
+            "adaptive_sampling": bool(getattr(cycles, "use_adaptive_sampling", False)),
+            "adaptive_threshold": float(getattr(cycles, "adaptive_threshold", 0.0)),
+            "denoising": bool(getattr(cycles, "use_denoising", False)),
+            "denoiser": getattr(cycles, "denoiser", None),
+            "denoising_prefilter": getattr(cycles, "denoising_prefilter", None),
+            "denoising_quality": getattr(cycles, "denoising_quality", None),
+        },
+        "elapsed_sec": round(time.time() - t0, 3),
+    }
+
+
 def main() -> int:
     if len(sys.argv) < 3:
         print("Usage: python -m render_engine.blender_worker <spec.json> <result.json>", file=sys.stderr)
@@ -425,6 +553,8 @@ def main() -> int:
         res = render_character_preview(spec)
     elif mode == "environment_preview":
         res = render_environment_preview(spec)
+    elif mode == "dynamic_3d":
+        res = render_dynamic_3d_scene(spec)
     else:
         res = render_animated_scene(spec)
 

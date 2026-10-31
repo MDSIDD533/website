@@ -61,21 +61,27 @@ def _detect_gpus() -> list[dict[str, Any]]:
 def _detect_dependencies() -> dict[str, dict[str, Any]]:
     deps: dict[str, dict[str, Any]] = {}
 
-    # Blender bpy (probed in isolated main-thread subprocess to keep FastAPI lightweight & thread-safe)
-    from scripts.setup_headless_bpy import probe_bpy_subprocess
+    # Blender bpy is probed in an isolated subprocess.  The backend venv may
+    # deliberately exclude the large bpy wheel, so use the same separate
+    # local Blender runtime discovery as the Blender 3D Jobs service.
+    from backend.services.blender_3d_service import blender_runtime_info
 
-    bpy_probe = probe_bpy_subprocess()
+    bpy_probe = blender_runtime_info(probe=True)
     if bpy_probe.get("available"):
         deps["blender_bpy"] = {
             "installed": True,
-            "version": str(bpy_probe.get("version", "")),
+            "version": str(bpy_probe.get("blender_version", "")),
             "details": "Headless Cycles CPU path-tracing & 3D animation rig engine",
+            "python": bpy_probe.get("python"),
+            "runtime": bpy_probe,
         }
     else:
         deps["blender_bpy"] = {
             "installed": False,
             "version": "",
-            "details": str(bpy_probe.get("error") or "Not installed"),
+            "details": str(bpy_probe.get("error") or bpy_probe.get("output_tail") or "Not installed"),
+            "python": bpy_probe.get("python"),
+            "runtime": bpy_probe,
         }
 
     # FFmpeg via imageio-ffmpeg or system PATH

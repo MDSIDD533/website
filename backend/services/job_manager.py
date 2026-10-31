@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import queue
+import re
 import shutil
 import signal
 import subprocess
@@ -19,6 +20,14 @@ from typing import Any, Callable
 from backend.core.config import REPO_ROOT, get_settings
 from backend.core.database import dumps_json, get_db, loads_json, utc_now_iso
 from backend.core.logging_config import get_logger
+from backend.services.blender_3d_service import (
+    BLENDER_JOB_TYPE,
+    blender_environment,
+    blender_runtime_info,
+    build_blender_3d_project,
+    encode_blender_frames,
+    run_blender_3d_worker,
+)
 from backend.services.hardware_service import evaluate_workload_warnings
 from backend.services.motion_graphics_service import (
     build_motion_graphics_project,
@@ -380,11 +389,17 @@ class JobManager:
         res_file = tmp_dir / "result.json"
         spec_file.write_text(json.dumps(spec, ensure_ascii=False), encoding="utf-8")
 
-        env = os.environ.copy()
-        env["PYTHONPATH"] = str(REPO_ROOT)
+        runtime = blender_runtime_info(probe=True)
+        if not runtime.get("available") or not runtime.get("python"):
+            raise RuntimeError(
+                "Local Blender runtime is unavailable: "
+                + str(runtime.get("error") or runtime.get("output_tail") or runtime)
+            )
+        blender_python = str(runtime["python"])
+        env = blender_environment(blender_python)
 
         proc = subprocess.Popen(
-            [sys.executable, "-m", "render_engine.blender_worker", str(spec_file), str(res_file)],
+            [blender_python, "-m", "render_engine.blender_worker", str(spec_file), str(res_file)],
             cwd=str(REPO_ROOT),
             env=env,
             stdout=subprocess.PIPE,
@@ -767,6 +782,253 @@ class JobManager:
             ),
         )
 
+    def _execute_blender_3d_job(
+        self, job_id: str, payload: dict[str, Any], t_start: float
+    ) -> None:
+        """Build and optionally render one script-driven Blender 3D scene."""
+
+        mode = str(payload.get("mode") or "render")
+        if mode not in {"build_only", "render"}:
+            raise ValueError("Blender 3D mode must be 'build_only' or 'render'")
+        request_payload = payload.get("request") or {}
+        if not isinstance(request_payload, dict):
+            raise ValueError("Blender 3D request payload must be a JSON object")
+        script_text = str(payload.get("script_text") or "")
+
+        settings = get_settings()
+        job_root = (settings.workspace_dir / "blender_3d" / job_id).resolve()
+        project_dir = job_root / "project"
+        worker_dir = job_root / "worker"
+        frames_dir = job_root / "frames"
+        renders_dir = job_root / "renders"
+        for directory in (job_root, project_dir, worker_dir, frames_dir, renders_dir):
+            directory.mkdir(parents=True, exist_ok=True)
+
+        self._update_job_state(
+            job_id,
+            current_stage="Parsing script and selecting Blender scene",
+            progress_pct=3.0,
+            progress_measurable=True,
+            log_line="Using the script parser and topic cues to select a procedural Blender theme.",
+        )
+        built = build_blender_3d_project(
+            script_text=script_text,
+            request_payload=request_payload,
+            output_dir=project_dir,
+            mode=mode,
+            fps=int(payload["fps"]) if payload.get("fps") is not None else None,
+            quality=str(payload["quality"]) if payload.get("quality") is not None else None,
+            duration_sec=(
+                float(payload["duration_sec"])
+                if payload.get("duration_sec") is not None
+                else None
+            ),
+            theme=str(payload["theme"]) if payload.get("theme") is not None else None,
+            include_captions=(
+                bool(payload["include_captions"])
+                if payload.get("include_captions") is not None
+                else None
+            ),
+        )
+        if self._is_cancelled(job_id):
+            raise InterruptedError("Blender 3D job cancelled by user.")
+
+        plan = built.plan
+        request = plan.get("request") or {}
+        topic = plan.get("topic") or {}
+        blend_path = project_dir / "dynamic-scene.blend"
+        thumbnail_path = project_dir / "thumbnail.png"
+        outputs: dict[str, Any] = {
+            **built.output_paths(),
+            "engine": "blender",
+            "template": BLENDER_JOB_TYPE,
+            "mode": mode,
+            "theme": topic.get("theme"),
+            "theme_label": topic.get("label"),
+            "scene_count": plan.get("scene_count"),
+            "total_frames": plan.get("total_frames"),
+            "width": request.get("width"),
+            "height": request.get("height"),
+            "fps": request.get("fps"),
+            "quality": request.get("quality"),
+            "blender_plan": plan,
+        }
+        self._update_job_state(
+            job_id,
+            current_stage=f"Blender scene planned: {topic.get('label') or topic.get('theme')}",
+            progress_pct=8.0,
+            progress_measurable=True,
+            output_paths=outputs,
+            log_line=(
+                f"Selected Blender theme '{topic.get('theme')}' from cues "
+                f"{topic.get('matched_cues') or []}; native {request.get('width')}×"
+                f"{request.get('height')} at {request.get('fps')}fps."
+            ),
+        )
+
+        worker_start_pct = 10.0
+        worker_end_pct = 88.0 if mode == "build_only" else 84.0
+
+        def _on_progress(ratio: float, stage: str) -> None:
+            bounded = max(0.0, min(1.0, float(ratio)))
+            self._update_job_state(
+                job_id,
+                current_stage=stage,
+                progress_pct=worker_start_pct + bounded * (worker_end_pct - worker_start_pct),
+                progress_measurable=True,
+            )
+
+        def _on_log(line: str) -> None:
+            self._update_job_state(job_id, log_line=line)
+
+        def _on_process(proc: subprocess.Popen[str] | None) -> None:
+            with self._lock:
+                if proc is None:
+                    self._active_procs.pop(job_id, None)
+                else:
+                    self._active_procs[job_id] = proc
+            self._update_job_state(job_id, worker_pid=proc.pid if proc else None)
+
+        operation = "build_only" if mode == "build_only" else "render"
+        worker_result = run_blender_3d_worker(
+            plan=plan,
+            operation=operation,
+            blend_path=blend_path,
+            thumbnail_path=thumbnail_path,
+            frames_dir=frames_dir,
+            work_dir=worker_dir,
+            on_log=_on_log,
+            on_progress=_on_progress,
+            on_process=_on_process,
+            is_cancelled=lambda: self._is_cancelled(job_id),
+        )
+        if not blend_path.is_file():
+            raise RuntimeError(f"Blender worker did not create the .blend file: {blend_path}")
+        if not thumbnail_path.is_file():
+            raise RuntimeError(f"Blender worker did not create a thumbnail: {thumbnail_path}")
+
+        worker_render = worker_result.get("render") or {}
+        if int(worker_render.get("width") or 0) != int(request.get("width") or 0) or int(
+            worker_render.get("height") or 0
+        ) != int(request.get("height") or 0):
+            raise RuntimeError(
+                "Blender worker resolution mismatch: "
+                f"expected {request.get('width')}×{request.get('height')}, got {worker_render}"
+            )
+        outputs.update(
+            {
+                "blend_file": str(blend_path),
+                "thumbnail_png": str(thumbnail_path),
+                "frames_dir": str(frames_dir),
+                "worker_spec_json": worker_result.get("spec_path"),
+                "worker_result_json": worker_result.get("result_path"),
+                "render_log": worker_result.get("log_path"),
+                "worker_result": worker_result,
+                "render_elapsed_sec": worker_result.get("service_elapsed_sec"),
+            }
+        )
+
+        if mode == "build_only":
+            self._update_job_state(
+                job_id,
+                status="completed",
+                current_stage="completed",
+                progress_pct=100.0,
+                progress_measurable=True,
+                output_paths=outputs,
+                completed=True,
+                log_line=(
+                    f"Blender build-only job completed: {blend_path.name} "
+                    f"({topic.get('label')}, {request.get('width')}×{request.get('height')}, "
+                    f"{(worker_result.get('metadata') or {}).get('object_count')} objects) in "
+                    f"{round(time.time() - t_start, 2)}s."
+                ),
+            )
+            return
+
+        expected_frames = int(plan.get("total_frames") or 0)
+        rendered_frames = int(worker_result.get("frame_count") or 0)
+        if rendered_frames != expected_frames:
+            raise RuntimeError(
+                f"Blender rendered {rendered_frames} frames, expected {expected_frames}"
+            )
+
+        theme_slug = re.sub(r"[^a-z0-9_-]+", "-", str(topic.get("theme") or "scene").lower()).strip("-")
+        output_mp4 = renders_dir / f"blender3d-{theme_slug}-{job_id}.mp4"
+        self._update_job_state(
+            job_id,
+            current_stage="Encoding Blender PNG frames to MP4",
+            progress_pct=88.0,
+            progress_measurable=True,
+            output_paths=outputs,
+            log_line=f"Encoding {rendered_frames} native {request.get('width')}×{request.get('height')} Blender frames.",
+        )
+        encode_result = encode_blender_frames(
+            frames_dir=frames_dir,
+            output_path=output_mp4,
+            fps=int(request.get("fps") or 24),
+            quality=str(request.get("quality") or "standard"),
+            captions_path=built.captions_path,
+            on_log=_on_log,
+            on_process=_on_process,
+            is_cancelled=lambda: self._is_cancelled(job_id),
+        )
+        outputs.update(
+            {
+                "video": str(output_mp4),
+                "frame_count": rendered_frames,
+                "encode_result": encode_result,
+            }
+        )
+        self._update_job_state(
+            job_id,
+            current_stage="Verifying Blender MP4 from disk",
+            progress_pct=96.0,
+            progress_measurable=True,
+            output_paths=outputs,
+            log_line="Blender frames encoded; fully decoding the MP4 for verification.",
+        )
+        verification = verify_mp4(output_mp4)
+        verification_path = job_root / "verification.json"
+        verification_path.write_text(
+            json.dumps(verification, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        outputs["verification"] = verification
+        outputs["verification_json"] = str(verification_path)
+        if not verification.get("verified"):
+            raise RuntimeError(
+                "Blender MP4 failed verification: "
+                + str(verification.get("error") or verification)
+            )
+        if int(verification.get("width") or 0) != int(request.get("width") or 0) or int(
+            verification.get("height") or 0
+        ) != int(request.get("height") or 0):
+            raise RuntimeError(
+                "Blender MP4 resolution mismatch: "
+                f"expected {request.get('width')}×{request.get('height')}, got {verification}"
+            )
+        decoded_frames = int(verification.get("decoded_frames") or 0)
+        if abs(decoded_frames - expected_frames) > 1:
+            raise RuntimeError(
+                f"Blender MP4 decoded {decoded_frames} frames, expected {expected_frames}"
+            )
+
+        self._update_job_state(
+            job_id,
+            status="completed",
+            current_stage="completed",
+            progress_pct=100.0,
+            progress_measurable=True,
+            output_paths=outputs,
+            completed=True,
+            log_line=(
+                f"Blender 3D MP4 verified: {output_mp4.name} "
+                f"({topic.get('label')}, {verification.get('width')}×{verification.get('height')} @ "
+                f"{verification.get('fps')}fps, {verification.get('duration_sec')}s, "
+                f"{decoded_frames} decoded frames) in {round(time.time() - t_start, 2)}s."
+            ),
+        )
+
     def _execute_motion_graphics_job(
         self, job_id: str, payload: dict[str, Any], t_start: float
     ) -> None:
@@ -1014,6 +1276,10 @@ class JobManager:
                     completed=True,
                     log_line=f"Environment preview saved to {out_png.name}",
                 )
+                return
+
+            if jtype == BLENDER_JOB_TYPE:
+                self._execute_blender_3d_job(job_id, payload, t_start)
                 return
 
             if jtype == "motion_graphics":

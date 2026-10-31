@@ -211,7 +211,76 @@ export interface MotionPreview {
   variables: Record<string, any>;
 }
 
-export type MotionSelectionId = MotionTemplateId | 'auto';
+export type BlenderThemeId =
+  | 'ww2_battlefield'
+  | 'finance_city'
+  | 'space_voyage'
+  | 'ocean_voyage'
+  | 'tech_lab'
+  | 'nature_valley'
+  | 'history_fort'
+  | 'abstract_shapes';
+export type BlenderThemeSelection = BlenderThemeId | 'auto';
+export type MotionSelectionId = MotionTemplateId | 'auto' | 'blender_3d';
+
+export interface BlenderThemeInfo {
+  id: BlenderThemeId;
+  label: string;
+  environment: string;
+  description: string;
+  default_captions: string[];
+  palette: Record<string, string>;
+}
+
+export interface BlenderCatalogResponse {
+  engine: 'blender';
+  job_type: 'blender_3d';
+  primary: boolean;
+  themes: BlenderThemeInfo[];
+  default_request: Record<string, any>;
+  runtime: Record<string, any>;
+}
+
+export interface BlenderTopic {
+  theme: BlenderThemeId;
+  label: string;
+  environment: string;
+  confidence: number;
+  matched_cues: string[];
+  reason_codes: string[];
+}
+
+export interface BlenderPlan {
+  planner_version: string;
+  script_text: string;
+  scenes: MotionParsedScene[];
+  scene_count: number;
+  request: Record<string, any>;
+  topic: BlenderTopic;
+  title: string;
+  scene_label: string;
+  captions: string[];
+  caption_segments: Array<Record<string, any>>;
+  scene_beats: Array<Record<string, any>>;
+  warnings: string[];
+  total_duration_sec: number;
+  total_frames: number;
+}
+
+export interface BlenderPreview {
+  engine: 'blender';
+  template: 'blender_3d';
+  job_type: 'blender_3d';
+  mode: MotionJobMode;
+  scenes: MotionParsedScene[];
+  scene_count: number;
+  request: Record<string, any>;
+  topic: BlenderTopic;
+  plan: BlenderPlan;
+  total_duration_sec: number;
+  total_frames: number;
+  runtime: Record<string, any>;
+}
 
 export interface MotionAutoClipPlan {
   clip_id: string;

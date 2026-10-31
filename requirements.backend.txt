@@ -1,7 +1,8 @@
-# Production API + Piper/HyperFrames backend dependencies.
-# Blender's bpy wheel is deliberately excluded: the deployed HyperFrames
-# motion-graphics path does not use Blender, and bpy would make the free-tier
-# container much larger.
+# Production API + Piper and legacy HyperFrames backend dependencies.
+# Blender's bpy wheel is deliberately excluded from this small deployment
+# file. Blender 3D jobs use a separate local Blender Python runtime
+# (requirements.txt includes bpy) selected with SIDD_BLENDER_PYTHON or
+# SIDD_BLENDER_RUNTIME_DIR.
 fastapi==0.162.0
 uvicorn[standard]==0.54.0
 pydantic==2.14.1

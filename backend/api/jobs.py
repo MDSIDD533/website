@@ -14,6 +14,13 @@ from pydantic import BaseModel, Field
 
 from backend.core.config import get_settings
 from backend.core.logging_config import get_recent_logs
+from app.blender_3d.planner import Blender3DRequest
+from backend.services.blender_3d_service import (
+    BLENDER_JOB_TYPE,
+    blender_runtime_info,
+    blender_themes,
+    prepare_blender_3d_preview,
+)
 from backend.services.job_manager import get_job_manager
 from backend.services.motion_graphics_service import (
     list_templates,
@@ -62,6 +69,31 @@ class AutoMotionGraphicsJobRequest(BaseModel):
     project_id: str | None = None
 
 
+BlenderTheme = Literal[
+    "auto",
+    "ww2_battlefield",
+    "finance_city",
+    "space_voyage",
+    "ocean_voyage",
+    "tech_lab",
+    "nature_valley",
+    "history_fort",
+    "abstract_shapes",
+]
+
+
+class Blender3DJobRequest(BaseModel):
+    script_text: str = Field(default="", max_length=20000)
+    request: dict[str, Any] = Field(default_factory=dict)
+    mode: Literal["build_only", "render"] = "render"
+    fps: Literal[12, 24, 30] = 24
+    quality: Literal["draft", "standard", "high"] = "standard"
+    duration_sec: float | None = Field(default=None, ge=3.0, le=120.0)
+    theme: BlenderTheme = "auto"
+    include_captions: bool = True
+    project_id: str | None = None
+
+
 def _motion_preview_payload(req: MotionGraphicsJobRequest) -> dict[str, Any]:
     try:
         request_obj, scenes = prepare_request(
@@ -104,6 +136,24 @@ def _auto_motion_preview_payload(
         "total_duration_sec": plan_payload["total_duration_sec"],
         "plan": plan_payload,
     }
+
+
+def _blender_3d_preview_payload(req: Blender3DJobRequest) -> dict[str, Any]:
+    try:
+        return jsonable_encoder(
+            prepare_blender_3d_preview(
+                req.script_text,
+                req.request,
+                mode=req.mode,
+                fps=req.fps,
+                quality=req.quality,
+                duration_sec=req.duration_sec,
+                theme=req.theme,
+                include_captions=req.include_captions,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("")
@@ -175,6 +225,56 @@ def api_enqueue_auto_motion_graphics(
             "brand_label": req.brand_label,
             "include_dialogue_audio": req.include_dialogue_audio,
             "include_narration_audio": req.include_narration_audio,
+            "project_id": req.project_id,
+        },
+    )
+    return {"job": job, "preview": preview}
+
+
+@router.get("/blender-3d/themes")
+def api_list_blender_3d_themes() -> dict[str, Any]:
+    return {
+        "engine": "blender",
+        "job_type": BLENDER_JOB_TYPE,
+        "primary": True,
+        "themes": blender_themes(),
+        "default_request": Blender3DRequest().to_dict(),
+        "runtime": blender_runtime_info(probe=False),
+    }
+
+
+@router.get("/blender-3d/runtime")
+def api_get_blender_3d_runtime(probe: bool = False) -> dict[str, Any]:
+    return {"runtime": blender_runtime_info(probe=probe)}
+
+
+@router.post("/blender-3d/preview")
+def api_preview_blender_3d(req: Blender3DJobRequest) -> dict[str, Any]:
+    return _blender_3d_preview_payload(req)
+
+
+@router.post("/blender-3d")
+def api_enqueue_blender_3d(req: Blender3DJobRequest) -> dict[str, Any]:
+    preview = _blender_3d_preview_payload(req)
+    job = get_job_manager().enqueue_job(
+        BLENDER_JOB_TYPE,
+        project_id=req.project_id,
+        payload={
+            "engine": "blender",
+            "template": BLENDER_JOB_TYPE,
+            "request": req.request,
+            "prepared_request": preview["request"],
+            "planned_topic": preview["topic"],
+            "script_text": req.script_text,
+            "parsed_scene_count": preview["scene_count"],
+            "planned_duration_sec": preview["total_duration_sec"],
+            "planned_frame_count": preview["total_frames"],
+            "mode": req.mode,
+            "fps": req.fps,
+            "quality": req.quality,
+            "duration_sec": req.duration_sec,
+            "theme": req.theme,
+            "include_captions": req.include_captions,
             "project_id": req.project_id,
         },
     )
