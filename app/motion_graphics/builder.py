@@ -42,6 +42,7 @@ DATA_TEMPLATE_DIR = TEMPLATE_ROOT / "data"
 SHAPE_TEMPLATE_DIR = TEMPLATE_ROOT / "shape"
 QUOTE_TEMPLATE_DIR = TEMPLATE_ROOT / "quote"
 OUTRO_TEMPLATE_DIR = TEMPLATE_ROOT / "outro"
+ADVENTURE_TEMPLATE_DIR = TEMPLATE_ROOT / "adventure3d"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_LIBRARY_DIR = REPO_ROOT / "dollar-reserve-currency" / "assets" / "lib"
 
@@ -193,6 +194,30 @@ OUTRO_TEXT_VARIABLE_IDS = (
     "credit_line_2",
     "credit_line_3",
     "cta_label",
+    "ink_color",
+    "accent_color",
+    "secondary_color",
+)
+ADVENTURE_ENVIRONMENTS = ("battlefield", "invasion", "coastal", "montage")
+ADVENTURE_CAMERA_MOVES = ("cinematic", "push_in", "pan", "aerial", "tracking")
+ADVENTURE_STAGE_VARIABLE_IDS = (
+    "environment",
+    "camera_move",
+    "intensity",
+    "sky_color",
+    "ground_color",
+    "accent_color",
+    "secondary_color",
+    "muted_color",
+)
+ADVENTURE_OVERLAY_VARIABLE_IDS = (
+    "scene_label",
+    "caption_count",
+    "caption_1",
+    "caption_2",
+    "caption_3",
+    "caption_4",
+    "show_caption",
     "ink_color",
     "accent_color",
     "secondary_color",
@@ -1482,6 +1507,205 @@ class OutroBuildRequest:
 
 
 @dataclass(frozen=True)
+class Adventure3DBuildRequest:
+    """Validated inputs for the procedural Three.js adventure scene.
+
+    The stage is intentionally asset-free: terrain, tanks, soldiers,
+    artillery, aircraft, landing craft, ships, smoke and explosions are all
+    deterministic primitives/canvas textures generated locally in the
+    browser.  ``caption_lines`` are deliberately limited to four short
+    lower-third labels so the 3D world—not typography—carries the scene.
+    """
+
+    scene_label: str = "WWII · 3D ADVENTURE"
+    caption_lines: tuple[str, ...] | Sequence[str] | str = (
+        "THE GLOBAL CONFLICT",
+        "INVASION",
+        "WAR DECLARED",
+        "LAND · SEA · AIR",
+    )
+    environment: str = "montage"
+    camera_move: str = "cinematic"
+    intensity: float = 1.0
+    show_caption: bool = True
+    duration_sec: float = 18.0
+    sky_color: str = "#243447"
+    ground_color: str = "#20241c"
+    ink_color: str = "#ffffff"
+    accent_color: str = "#e0a458"
+    secondary_color: str = "#6e93b8"
+    muted_color: str = "#77806f"
+    width: int = 1920
+    height: int = 1080
+
+    def __post_init__(self) -> None:
+        caption_lines = tuple(
+            _clean_line(line, "caption line", 48)
+            for line in _as_text_lines(self.caption_lines)
+        )
+        if len(caption_lines) > 4:
+            raise ValueError("caption_lines must contain at most 4 lines")
+
+        environment = str(self.environment).strip().lower()
+        if environment not in ADVENTURE_ENVIRONMENTS:
+            raise ValueError(
+                f"environment must be one of {ADVENTURE_ENVIRONMENTS}"
+            )
+        camera_move = str(self.camera_move).strip().lower()
+        if camera_move not in ADVENTURE_CAMERA_MOVES:
+            raise ValueError(
+                f"camera_move must be one of {ADVENTURE_CAMERA_MOVES}"
+            )
+
+        if not isinstance(self.show_caption, bool):
+            raise ValueError("show_caption must be a boolean")
+        if (self.width, self.height) != (1920, 1080):
+            raise ValueError("Adventure3D template v1 supports 1920x1080 only")
+
+        try:
+            intensity = float(self.intensity)
+            duration = float(self.duration_sec)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("intensity and duration_sec must be numeric") from exc
+        if not math.isfinite(intensity) or not 0.3 <= intensity <= 2.0:
+            raise ValueError("intensity must be between 0.3 and 2.0")
+        if not math.isfinite(duration) or not 8.0 <= duration <= 30.0:
+            raise ValueError("duration_sec must be between 8 and 30 seconds")
+
+        object.__setattr__(
+            self, "scene_label", _clean_line(self.scene_label, "scene_label", 48)
+        )
+        object.__setattr__(self, "caption_lines", caption_lines)
+        object.__setattr__(self, "environment", environment)
+        object.__setattr__(self, "camera_move", camera_move)
+        object.__setattr__(self, "intensity", round(intensity, 3))
+        object.__setattr__(self, "duration_sec", duration)
+        object.__setattr__(self, "sky_color", _clean_color(self.sky_color, "sky_color"))
+        object.__setattr__(
+            self, "ground_color", _clean_color(self.ground_color, "ground_color")
+        )
+        object.__setattr__(self, "ink_color", _clean_color(self.ink_color, "ink_color"))
+        object.__setattr__(
+            self, "accent_color", _clean_color(self.accent_color, "accent_color")
+        )
+        object.__setattr__(
+            self,
+            "secondary_color",
+            _clean_color(self.secondary_color, "secondary_color"),
+        )
+        object.__setattr__(
+            self, "muted_color", _clean_color(self.muted_color, "muted_color")
+        )
+
+    def variables(self) -> dict[str, Any]:
+        """Return the complete HyperFrames variable payload."""
+
+        captions = list(self.caption_lines) + ["", "", "", ""]
+        return {
+            "scene_label": self.scene_label,
+            "caption_count": len(self.caption_lines),
+            "caption_1": captions[0],
+            "caption_2": captions[1],
+            "caption_3": captions[2],
+            "caption_4": captions[3],
+            "environment": self.environment,
+            "camera_move": self.camera_move,
+            "intensity": self.intensity,
+            "show_caption": self.show_caption,
+            "sky_color": self.sky_color,
+            "ground_color": self.ground_color,
+            "ink_color": self.ink_color,
+            "accent_color": self.accent_color,
+            "secondary_color": self.secondary_color,
+            "muted_color": self.muted_color,
+        }
+
+    def variable_schema(self) -> list[dict[str, Any]]:
+        """Return the HyperFrames variable declarations for this build."""
+
+        values = self.variables()
+
+        def string_var(var_id: str, label: str) -> dict[str, Any]:
+            return {
+                "id": var_id,
+                "type": "string",
+                "label": label,
+                "default": values[var_id],
+            }
+
+        def color_var(var_id: str, label: str) -> dict[str, Any]:
+            return {
+                "id": var_id,
+                "type": "color",
+                "label": label,
+                "default": values[var_id],
+            }
+
+        return [
+            string_var("scene_label", "Scene label"),
+            {
+                "id": "caption_count",
+                "type": "number",
+                "label": "Caption count",
+                "default": values["caption_count"],
+                "min": 0,
+                "max": 4,
+                "step": 1,
+            },
+            string_var("caption_1", "Caption 1"),
+            string_var("caption_2", "Caption 2"),
+            string_var("caption_3", "Caption 3"),
+            string_var("caption_4", "Caption 4"),
+            {
+                "id": "environment",
+                "type": "enum",
+                "label": "3D environment",
+                "default": values["environment"],
+                "options": [
+                    {"value": "battlefield", "label": "Battlefield"},
+                    {"value": "invasion", "label": "Invasion convoy"},
+                    {"value": "coastal", "label": "Coastal landing"},
+                    {"value": "montage", "label": "Land-sea-air montage"},
+                ],
+            },
+            {
+                "id": "camera_move",
+                "type": "enum",
+                "label": "Camera move",
+                "default": values["camera_move"],
+                "options": [
+                    {"value": "cinematic", "label": "Cinematic path"},
+                    {"value": "push_in", "label": "Push in"},
+                    {"value": "pan", "label": "Pan"},
+                    {"value": "aerial", "label": "Aerial"},
+                    {"value": "tracking", "label": "Tracking"},
+                ],
+            },
+            {
+                "id": "intensity",
+                "type": "number",
+                "label": "Action intensity",
+                "default": values["intensity"],
+                "min": 0.3,
+                "max": 2.0,
+                "step": 0.1,
+            },
+            {
+                "id": "show_caption",
+                "type": "boolean",
+                "label": "Show minimal captions",
+                "default": values["show_caption"],
+            },
+            color_var("sky_color", "Sky color"),
+            color_var("ground_color", "Ground color"),
+            color_var("ink_color", "Ink color"),
+            color_var("accent_color", "Accent color"),
+            color_var("secondary_color", "Secondary color"),
+            color_var("muted_color", "Muted color"),
+        ]
+
+
+@dataclass(frozen=True)
 class BuiltProject:
     """Paths and variables for a generated HyperFrames project."""
 
@@ -1490,6 +1714,107 @@ class BuiltProject:
     variables_path: Path
     files: tuple[str, ...]
     variables: dict[str, Any]
+
+
+def adventure3d_request_from_text(
+    text: str,
+    *,
+    duration_sec: float = 18.0,
+) -> Adventure3DBuildRequest:
+    """Choose a procedural 3D environment from explicit script keywords.
+
+    This adapter is deliberately transparent and local: it does not call an
+    image/model API and it never downloads an asset.  A script mentioning
+    several theatres becomes a land/sea/air montage; a single coastal or
+    invasion cue selects that focused environment.  Captions use only short
+    labels directly justified by words in the supplied text.
+    """
+
+    clean = " ".join(str(text or "").strip().split())
+    lowered = clean.lower()
+
+    coastal_cues = (
+        "normandy",
+        "beach",
+        "beaches",
+        "island",
+        "pacific",
+        "sea",
+        "navy",
+        "ship",
+        "shore",
+        "landing",
+    )
+    invasion_cues = (
+        "invaded",
+        "invasion",
+        "invade",
+        "advance",
+        "convoy",
+        "march",
+        "border",
+        "poland",
+    )
+    battlefield_cues = (
+        "battle",
+        "war",
+        "soldier",
+        "tank",
+        "army",
+        "fought",
+        "fight",
+        "conflict",
+    )
+    def has_cue(cue: str) -> bool:
+        # Word boundaries prevent false positives such as "war" in "toward"
+        # or "sea" in "search", while still accepting simple plurals.
+        return (
+            re.search(rf"\b{re.escape(cue)}(?:s|es)?\b", lowered) is not None
+        )
+
+    has_coastal = any(has_cue(cue) for cue in coastal_cues)
+    has_invasion = any(has_cue(cue) for cue in invasion_cues)
+    has_battlefield = any(has_cue(cue) for cue in battlefield_cues)
+    cue_groups = sum((has_coastal, has_invasion, has_battlefield))
+
+    if cue_groups >= 2 or "world war" in lowered or "global conflict" in lowered:
+        environment = "montage"
+    elif has_coastal:
+        environment = "coastal"
+    elif has_invasion:
+        environment = "invasion"
+    else:
+        environment = "battlefield"
+
+    captions: list[str] = []
+    if "global conflict" in lowered or "world war" in lowered:
+        captions.append("THE GLOBAL CONFLICT")
+    if has_invasion:
+        captions.append("1939 · INVASION" if "1939" in lowered else "INVASION")
+    if "declared war" in lowered:
+        captions.append("WAR DECLARED")
+    if "normandy" in lowered:
+        captions.append("NORMANDY")
+    elif has_coastal:
+        captions.append("LAND · SEA · AIR")
+    if not captions and clean:
+        captions.append(clean.rstrip(".!")[:48].upper())
+    if not captions:
+        captions.append("BATTLEFIELD")
+
+    scene_label = {
+        "battlefield": "BATTLEFIELD · 3D",
+        "invasion": "INVASION · 3D",
+        "coastal": "COASTAL LANDING · 3D",
+        "montage": "WWII · LAND-SEA-AIR 3D",
+    }[environment]
+    return Adventure3DBuildRequest(
+        scene_label=scene_label,
+        caption_lines=tuple(captions[:4]),
+        environment=environment,
+        camera_move="cinematic",
+        duration_sec=duration_sec,
+    )
 
 
 def title_request_from_scene(
@@ -1904,6 +2229,80 @@ def _render_outro_index_html(request: OutroBuildRequest, project_title: str) -> 
 """
 
 
+def _render_adventure_index_html(
+    request: Adventure3DBuildRequest, project_title: str
+) -> str:
+    duration = _format_seconds(request.duration_sec)
+    values = request.variables()
+    stage_values = {key: values[key] for key in ADVENTURE_STAGE_VARIABLE_IDS}
+    overlay_values = {
+        key: values[key] for key in ADVENTURE_OVERLAY_VARIABLE_IDS
+    }
+    schema_attr = _json_attr(request.variable_schema())
+    stage_attr = _json_attr(stage_values)
+    overlay_attr = _json_attr(overlay_values)
+    escaped_title = html.escape(project_title, quote=True)
+
+    return f"""<!doctype html>
+<html lang="en" data-composition-variables='{schema_attr}'>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>{escaped_title}</title>
+    <script src="assets/lib/gsap.min.js"></script>
+    <style>
+      * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+      html, body {{ width: 1920px; height: 1080px; overflow: hidden; background: {request.ground_color}; }}
+      body {{ font-family: Inter, Arial, sans-serif; }}
+      #root {{ position: relative; width: 1920px; height: 1080px; overflow: hidden; background: {request.ground_color}; }}
+      [data-composition-id="adventure-stage"], [data-composition-id="adventure-overlay"] {{ position: absolute; inset: 0; }}
+      [data-composition-id="adventure-stage"] {{ z-index: 1; }}
+      [data-composition-id="adventure-overlay"] {{ z-index: 2; }}
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="{duration}"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div
+        id="adventure-stage"
+        data-composition-id="adventure-stage"
+        data-composition-src="compositions/adventure-stage.html"
+        data-start="0"
+        data-duration="{duration}"
+        data-track-index="0"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+        data-variable-values='{stage_attr}'
+      ></div>
+      <div
+        id="adventure-overlay"
+        data-composition-id="adventure-overlay"
+        data-composition-src="compositions/adventure-overlay.html"
+        data-start="0"
+        data-duration="{duration}"
+        data-track-index="1"
+        data-track-kind="graphics"
+        data-width="1920"
+        data-height="1080"
+        data-variable-values='{overlay_attr}'
+      ></div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {{}};
+      window.__timelines["main"] = gsap.timeline({{ paused: true }});
+    </script>
+  </body>
+</html>
+"""
+
+
 def _template_timing_values(request: TitleBuildRequest) -> dict[str, str]:
     duration = request.duration_sec
     return {
@@ -1960,6 +2359,12 @@ def _outro_template_timing_values(request: OutroBuildRequest) -> dict[str, str]:
         "__CTA_START__": _format_seconds(duration * 0.58),
         "__CTA_DURATION__": _format_seconds(duration * 0.42),
     }
+
+
+def _adventure_template_timing_values(
+    request: Adventure3DBuildRequest,
+) -> dict[str, str]:
+    return {"__DURATION__": _format_seconds(request.duration_sec)}
 
 
 def _render_template_with_tokens(
@@ -2480,6 +2885,70 @@ def build_outro_project(
     )
 
 
+def build_adventure3d_project(
+    request: Adventure3DBuildRequest | Mapping[str, Any] | None,
+    output_dir: str | Path,
+    *,
+    library_dir: str | Path | None = None,
+    overwrite: bool = False,
+) -> BuiltProject:
+    """Generate a self-contained procedural Three.js adventure project."""
+
+    if request is None:
+        build_request = Adventure3DBuildRequest()
+    elif isinstance(request, Adventure3DBuildRequest):
+        build_request = request
+    elif isinstance(request, Mapping):
+        build_request = Adventure3DBuildRequest(**dict(request))
+    else:
+        raise TypeError(
+            "request must be Adventure3DBuildRequest, a mapping, or None"
+        )
+
+    stage_template = (
+        ADVENTURE_TEMPLATE_DIR / "compositions" / "adventure-stage.html.tmpl"
+    )
+    overlay_template = (
+        ADVENTURE_TEMPLATE_DIR / "compositions" / "adventure-overlay.html.tmpl"
+    )
+    missing = [
+        str(path)
+        for path in (stage_template, overlay_template)
+        if not path.is_file()
+    ]
+    if missing:
+        raise FileNotFoundError(
+            "missing Adventure3D template assets: " + ", ".join(missing)
+        )
+
+    tokens = _adventure_template_timing_values(build_request)
+    project_title = build_request.scene_label
+    return _build_project_from_parts(
+        output_dir=output_dir,
+        library_dir=library_dir,
+        overwrite=overwrite,
+        project_title=project_title,
+        index_html=_render_adventure_index_html(build_request, project_title),
+        rendered_files=(
+            (
+                "compositions/adventure-stage.html",
+                _render_template_with_tokens(stage_template, tokens),
+            ),
+            (
+                "compositions/adventure-overlay.html",
+                _render_template_with_tokens(overlay_template, tokens),
+            ),
+        ),
+        variables=build_request.variables(),
+        template_name="adventure3d",
+        request_payload=asdict(build_request),
+        variable_groups={
+            "stage": ADVENTURE_STAGE_VARIABLE_IDS,
+            "overlay": ADVENTURE_OVERLAY_VARIABLE_IDS,
+        },
+    )
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build a local HyperFrames motion-graphics template project."
@@ -2487,7 +2956,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--output", required=True, help="Generated project directory")
     parser.add_argument(
         "--template",
-        choices=("title", "data", "shape", "quote", "outro"),
+        choices=("title", "data", "shape", "quote", "outro", "adventure3d"),
         default="title",
         help="Template to build (default: title, for backward compatibility)",
     )
@@ -2541,6 +3010,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     outro_group.add_argument("--brand-label")
     outro_group.add_argument("--credit-line", action="append", dest="credit_lines")
     outro_group.add_argument("--cta-label")
+
+    adventure_group = parser.add_argument_group("Adventure3D template")
+    adventure_group.add_argument("--scene-label")
+    adventure_group.add_argument("--caption-line", action="append", dest="caption_lines")
+    adventure_group.add_argument("--environment", choices=ADVENTURE_ENVIRONMENTS)
+    adventure_group.add_argument("--camera-move", choices=ADVENTURE_CAMERA_MOVES)
+    adventure_group.add_argument("--intensity", type=float)
+    adventure_group.add_argument(
+        "--hide-caption",
+        action="store_false",
+        dest="show_caption",
+        default=None,
+    )
     return parser.parse_args(argv)
 
 
@@ -2650,6 +3132,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             overwrite=args.overwrite,
         )
         print(f"Built Outro project: {result.output_dir}")
+    elif args.template == "adventure3d":
+        for field in (
+            "scene_label",
+            "caption_lines",
+            "environment",
+            "camera_move",
+            "intensity",
+            "show_caption",
+        ):
+            value = getattr(args, field)
+            if value is not None:
+                payload[field] = value
+
+        result = build_adventure3d_project(
+            payload,
+            args.output,
+            library_dir=args.library_dir,
+            overwrite=args.overwrite,
+        )
+        print(f"Built Adventure3D project: {result.output_dir}")
     else:
         for field in (
             "title_lines",

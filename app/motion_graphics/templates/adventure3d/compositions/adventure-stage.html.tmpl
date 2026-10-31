@@ -1,0 +1,1328 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      background: #20241c;
+    }
+    #adventure-stage-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+  </style>
+  <div
+    id="root"
+    data-composition-id="adventure-stage"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"environment","type":"enum","label":"3D environment","default":"montage","options":[{"value":"battlefield","label":"Battlefield"},{"value":"invasion","label":"Invasion convoy"},{"value":"coastal","label":"Coastal landing"},{"value":"montage","label":"Land-sea-air montage"}]},{"id":"camera_move","type":"enum","label":"Camera move","default":"cinematic","options":[{"value":"cinematic","label":"Cinematic path"},{"value":"push_in","label":"Push in"},{"value":"pan","label":"Pan"},{"value":"aerial","label":"Aerial"},{"value":"tracking","label":"Tracking"}]},{"id":"intensity","type":"number","label":"Action intensity","default":1,"min":0.3,"max":2,"step":0.1},{"id":"sky_color","type":"color","label":"Sky color","default":"#243447"},{"id":"ground_color","type":"color","label":"Ground color","default":"#20241c"},{"id":"accent_color","type":"color","label":"Accent color","default":"#e0a458"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#6e93b8"},{"id":"muted_color","type":"color","label":"Muted color","default":"#77806f"}]'
+  >
+    <canvas id="adventure-stage-canvas" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="0"></canvas>
+  </div>
+  <script src="assets/lib/three.min.js"></script>
+  <script>
+    (function () {
+      "use strict";
+      const DURATION = __DURATION__;
+      const defaults = {
+        environment: "montage",
+        camera_move: "cinematic",
+        intensity: 1,
+        sky_color: "#243447",
+        ground_color: "#20241c",
+        accent_color: "#e0a458",
+        secondary_color: "#6e93b8",
+        muted_color: "#77806f",
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+      const environment = ["battlefield", "invasion", "coastal", "montage"].includes(
+        String(vars.environment),
+      )
+        ? String(vars.environment)
+        : defaults.environment;
+      const cameraMove = ["cinematic", "push_in", "pan", "aerial", "tracking"].includes(
+        String(vars.camera_move),
+      )
+        ? String(vars.camera_move)
+        : defaults.camera_move;
+      const intensity = Math.max(0.3, Math.min(2, Number(vars.intensity) || 1));
+
+      const clamp01 = (v) => Math.max(0, Math.min(1, v));
+      const fract = (v) => v - Math.floor(v);
+      const mod = (v, n) => ((v % n) + n) % n;
+      const lerp = (a, b, v) => a + (b - a) * v;
+      const smoothstep = (a, b, x) => {
+        const t = clamp01((x - a) / (b - a));
+        return t * t * (3 - 2 * t);
+      };
+      const hash = (i) => fract(Math.sin(i * 127.1 + 311.7) * 43758.5453123);
+      const hash2 = (x, z) =>
+        fract(Math.sin(x * 127.1 + z * 311.7) * 43758.5453123);
+      const V3 = (x, y, z) => new THREE.Vector3(x, y, z);
+
+      const skyColor = new THREE.Color(vars.sky_color);
+      const groundColor = new THREE.Color(vars.ground_color);
+      const accentColor = new THREE.Color(vars.accent_color);
+      const secondaryColor = new THREE.Color(vars.secondary_color);
+      const mutedColor = new THREE.Color(vars.muted_color);
+      const fogColor = skyColor.clone().lerp(new THREE.Color(0x8b959d), 0.38);
+
+      const canvas = document.getElementById("adventure-stage-canvas");
+      const renderer = new THREE.WebGLRenderer({
+        canvas,
+        antialias: true,
+        alpha: false,
+        powerPreference: "high-performance",
+      });
+      renderer.setPixelRatio(1);
+      renderer.setSize(1920, 1080, false);
+      renderer.setClearColor(fogColor, 1);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.18;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+      const scene = new THREE.Scene();
+      scene.background = fogColor;
+      scene.fog = new THREE.Fog(fogColor, 48, 190);
+      const camera = new THREE.PerspectiveCamera(47, 1920 / 1080, 0.1, 430);
+
+      // Local canvas reflections keep the metal/paint response rich without
+      // any external HDR file.
+      {
+        const ec = document.createElement("canvas");
+        ec.width = 1024;
+        ec.height = 512;
+        const ex = ec.getContext("2d");
+        const lg = ex.createLinearGradient(0, 0, 0, 512);
+        lg.addColorStop(0, "#5f7488");
+        lg.addColorStop(0.48, "#8b959d");
+        lg.addColorStop(0.52, "#45463a");
+        lg.addColorStop(1, "#141713");
+        ex.fillStyle = lg;
+        ex.fillRect(0, 0, 1024, 512);
+        const rg = ex.createRadialGradient(270, 175, 8, 270, 175, 320);
+        rg.addColorStop(0, "rgba(255,232,175,0.95)");
+        rg.addColorStop(1, "rgba(255,232,175,0)");
+        ex.fillStyle = rg;
+        ex.fillRect(0, 0, 1024, 512);
+        const etex = new THREE.CanvasTexture(ec);
+        etex.mapping = THREE.EquirectangularReflectionMapping;
+        etex.colorSpace = THREE.SRGBColorSpace;
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromEquirectangular(etex).texture;
+        etex.dispose();
+        pmrem.dispose();
+      }
+
+      const hemi = new THREE.HemisphereLight(0xd6e0ea, 0x353321, 1.55);
+      scene.add(hemi);
+      const sun = new THREE.DirectionalLight(0xffe2b0, 2.9);
+      sun.position.set(-42, 48, 34);
+      sun.castShadow = true;
+      sun.shadow.mapSize.set(2048, 2048);
+      sun.shadow.camera.left = -105;
+      sun.shadow.camera.right = 105;
+      sun.shadow.camera.top = 85;
+      sun.shadow.camera.bottom = -85;
+      sun.shadow.camera.near = 5;
+      sun.shadow.camera.far = 180;
+      sun.shadow.bias = -0.00045;
+      sun.target.position.set(0, 0, -12);
+      scene.add(sun);
+      scene.add(sun.target);
+      const rim = new THREE.DirectionalLight(secondaryColor, 1.25);
+      rim.position.set(55, 18, -48);
+      scene.add(rim);
+      const explosionLights = [
+        new THREE.PointLight(0xff8a3d, 0, 42, 1.7),
+        new THREE.PointLight(0xffa04a, 0, 38, 1.7),
+      ];
+      explosionLights.forEach((light) => scene.add(light));
+
+      // Gradient sky dome.
+      {
+        const skyMaterial = new THREE.ShaderMaterial({
+          side: THREE.BackSide,
+          depthWrite: false,
+          uniforms: {
+            topColor: { value: skyColor },
+            horizonColor: { value: new THREE.Color(0x929fa8) },
+            bottomColor: { value: groundColor },
+          },
+          vertexShader: `
+            varying vec3 vWorldPosition;
+            void main() {
+              vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+              vWorldPosition = worldPosition.xyz;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform vec3 topColor;
+            uniform vec3 horizonColor;
+            uniform vec3 bottomColor;
+            varying vec3 vWorldPosition;
+            void main() {
+              float h = normalize(vWorldPosition).y;
+              vec3 sky = mix(horizonColor, topColor, smoothstep(-0.02, 0.28, h));
+              vec3 col = mix(bottomColor, sky, smoothstep(-0.18, 0.02, h));
+              gl_FragColor = vec4(col, 1.0);
+            }
+          `,
+        });
+        const dome = new THREE.Mesh(
+          new THREE.SphereGeometry(250, 36, 18),
+          skyMaterial,
+        );
+        dome.renderOrder = -10;
+        scene.add(dome);
+      }
+
+      const BOX = new THREE.BoxGeometry(1, 1, 1);
+      const CYL = new THREE.CylinderGeometry(0.5, 0.5, 1, 18);
+      const CYL_LOW = new THREE.CylinderGeometry(0.5, 0.5, 1, 10);
+      const SPHERE = new THREE.SphereGeometry(0.5, 18, 12);
+      const CONE = new THREE.ConeGeometry(0.5, 1, 14);
+
+      function addMesh(parent, geometry, material, sx, sy, sz, x, y, z, rx = 0, ry = 0, rz = 0) {
+        const item = new THREE.Mesh(geometry, material);
+        item.scale.set(sx, sy, sz);
+        item.position.set(x, y, z);
+        item.rotation.set(rx, ry, rz);
+        item.castShadow = true;
+        item.receiveShadow = true;
+        parent.add(item);
+        return item;
+      }
+      const box = (p, m, w, h, d, x, y, z, rx, ry, rz) =>
+        addMesh(p, BOX, m, w, h, d, x, y, z, rx, ry, rz);
+      const cyl = (p, m, r, h, x, y, z, rx, ry, rz) =>
+        addMesh(p, CYL, m, r * 2, h, r * 2, x, y, z, rx, ry, rz);
+      const cylLow = (p, m, r, h, x, y, z, rx, ry, rz) =>
+        addMesh(p, CYL_LOW, m, r * 2, h, r * 2, x, y, z, rx, ry, rz);
+      const ball = (p, m, sx, sy, sz, x, y, z, rx, ry, rz) =>
+        addMesh(p, SPHERE, m, sx, sy, sz, x, y, z, rx, ry, rz);
+      const cone = (p, m, r, h, x, y, z, rx, ry, rz) =>
+        addMesh(p, CONE, m, r * 2, h, r * 2, x, y, z, rx, ry, rz);
+
+      const MAT = {
+        olive: new THREE.MeshStandardMaterial({ color: 0x59613c, metalness: 0.34, roughness: 0.58 }),
+        oliveDark: new THREE.MeshStandardMaterial({ color: 0x39402c, metalness: 0.28, roughness: 0.68 }),
+        oliveLight: new THREE.MeshStandardMaterial({ color: 0x707650, metalness: 0.24, roughness: 0.62 }),
+        track: new THREE.MeshStandardMaterial({ color: 0x24251f, metalness: 0.22, roughness: 0.86 }),
+        metal: new THREE.MeshStandardMaterial({ color: 0x3e4547, metalness: 0.62, roughness: 0.42 }),
+        darkMetal: new THREE.MeshStandardMaterial({ color: 0x252a2c, metalness: 0.55, roughness: 0.5 }),
+        wood: new THREE.MeshStandardMaterial({ color: 0x6d5134, roughness: 0.9 }),
+        canvas: new THREE.MeshStandardMaterial({ color: 0x777052, roughness: 0.92 }),
+        uniform: new THREE.MeshStandardMaterial({ color: 0x5b6244, roughness: 0.94 }),
+        uniformDark: new THREE.MeshStandardMaterial({ color: 0x414735, roughness: 0.96 }),
+        skin: new THREE.MeshStandardMaterial({ color: 0xb08a68, roughness: 0.82 }),
+        helmet: new THREE.MeshStandardMaterial({ color: 0x4c553d, metalness: 0.2, roughness: 0.62 }),
+        stone: new THREE.MeshStandardMaterial({ color: 0x7b766b, roughness: 0.96 }),
+        stoneDark: new THREE.MeshStandardMaterial({ color: 0x59554d, roughness: 1 }),
+        brick: new THREE.MeshStandardMaterial({ color: 0x74584c, roughness: 0.98 }),
+        roof: new THREE.MeshStandardMaterial({ color: 0x433a34, roughness: 0.95 }),
+        leaf: new THREE.MeshStandardMaterial({ color: 0x3f5631, roughness: 1 }),
+        trunk: new THREE.MeshStandardMaterial({ color: 0x4b3927, roughness: 1 }),
+        sandbag: new THREE.MeshStandardMaterial({ color: 0x8b7958, roughness: 1 }),
+        window: new THREE.MeshBasicMaterial({ color: 0x11161c }),
+        ship: new THREE.MeshStandardMaterial({ color: 0x46545d, metalness: 0.42, roughness: 0.54 }),
+        shipDark: new THREE.MeshStandardMaterial({ color: 0x2e393f, metalness: 0.38, roughness: 0.6 }),
+        muted: new THREE.MeshStandardMaterial({ color: mutedColor, roughness: 0.9 }),
+      };
+
+      function makeGlowTexture() {
+        const c = document.createElement("canvas");
+        c.width = c.height = 256;
+        const ctx = c.getContext("2d");
+        const grad = ctx.createRadialGradient(128, 128, 2, 128, 128, 128);
+        grad.addColorStop(0, "rgba(255,255,255,1)");
+        grad.addColorStop(0.22, "rgba(255,255,255,0.55)");
+        grad.addColorStop(0.58, "rgba(255,255,255,0.14)");
+        grad.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        return tex;
+      }
+      function makeSmokeTexture() {
+        const c = document.createElement("canvas");
+        c.width = c.height = 256;
+        const ctx = c.getContext("2d");
+        ctx.clearRect(0, 0, 256, 256);
+        for (let i = 0; i < 34; i++) {
+          const angle = hash(i + 401) * Math.PI * 2;
+          const radius = hash(i + 433) * 62;
+          const x = 128 + Math.cos(angle) * radius;
+          const y = 128 + Math.sin(angle) * radius * 0.72;
+          const r = 28 + hash(i + 467) * 54;
+          const grad = ctx.createRadialGradient(x, y, 1, x, y, r);
+          grad.addColorStop(0, "rgba(255,255,255,0.20)");
+          grad.addColorStop(0.55, "rgba(255,255,255,0.08)");
+          grad.addColorStop(1, "rgba(255,255,255,0)");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, 256, 256);
+        }
+        const tex = new THREE.CanvasTexture(c);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        return tex;
+      }
+      const glowTexture = makeGlowTexture();
+      const smokeTexture = makeSmokeTexture();
+      function makeSprite(texture, color, opacity, blending = THREE.NormalBlending) {
+        const material = new THREE.SpriteMaterial({
+          map: texture,
+          color,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+          blending,
+        });
+        material.fog = true;
+        return new THREE.Sprite(material);
+      }
+
+      const craterDefs = [
+        { x: -42, z: -4, r: 4.6 }, { x: -28, z: 12, r: 3.8 },
+        { x: -17, z: -11, r: 5.2 }, { x: -4, z: 14, r: 3.4 },
+        { x: 7, z: -13, r: 4.4 }, { x: 18, z: 8, r: 3.5 },
+        { x: 29, z: -10, r: 4.0 }, { x: 43, z: 3, r: 3.2 },
+        { x: -54, z: 16, r: 3.6 }, { x: 55, z: -14, r: 3.7 },
+      ];
+      const belt = (value, center, width) =>
+        1 - smoothstep(width * 0.42, width, Math.abs(value - center));
+      function terrainHeight(x, z) {
+        let y =
+          Math.sin(x * 0.055 + 0.7) * 0.36 +
+          Math.cos(z * 0.075 - 0.4) * 0.30 +
+          Math.sin((x + z) * 0.026) * 0.46 +
+          Math.sin(x * 0.17) * Math.cos(z * 0.14) * 0.13;
+        y *= 1 - belt(z, 5, 7.5) * 0.92;
+        const coast = 1 - smoothstep(-30, -15, z);
+        y = lerp(y, -1.08, coast * 0.9);
+        if (z > 20) y += (z - 20) * 0.025;
+        for (const crater of craterDefs) {
+          const dx = x - crater.x;
+          const dz = z - crater.z;
+          const d2 = dx * dx + dz * dz;
+          const r2 = crater.r * crater.r;
+          if (d2 < r2) y -= 0.55 * (1 - d2 / r2);
+        }
+        return y;
+      }
+      const groundY = (x, z) => terrainHeight(x, z);
+
+      // Terrain with deterministic vertex colors.
+      {
+        const geo = new THREE.PlaneGeometry(205, 128, 124, 78);
+        geo.rotateX(-Math.PI / 2);
+        const pos = geo.attributes.position;
+        const colors = new Float32Array(pos.count * 3);
+        const grass = new THREE.Color(0x4c5a30);
+        const mud = new THREE.Color(0x5d4830);
+        const dry = new THREE.Color(0x77673d);
+        const sand = new THREE.Color(0xa98d5f);
+        const under = new THREE.Color(0x53614f);
+        const roadCol = new THREE.Color(0x51402e);
+        const scar = new THREE.Color(0x332a21);
+        const tmp = new THREE.Color();
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const z = pos.getZ(i);
+          const y = terrainHeight(x, z);
+          pos.setY(i, y);
+          const patch = hash2(Math.floor(x / 3.2), Math.floor(z / 3.2));
+          tmp.copy(grass).lerp(mud, patch * 0.72).lerp(dry, Math.max(0, y) * 0.18);
+          tmp.lerp(roadCol, belt(z, 5, 6.5) * 0.82);
+          tmp.lerp(sand, (1 - smoothstep(-26, -14, z)) * 0.88);
+          if (y < -0.68) tmp.lerp(under, 0.62);
+          for (const crater of craterDefs) {
+            const dx = x - crater.x;
+            const dz = z - crater.z;
+            const d = Math.sqrt(dx * dx + dz * dz);
+            if (d < crater.r * 1.15) tmp.lerp(scar, (1 - d / (crater.r * 1.15)) * 0.72);
+          }
+          colors[i * 3] = tmp.r;
+          colors[i * 3 + 1] = tmp.g;
+          colors[i * 3 + 2] = tmp.b;
+        }
+        geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+        geo.computeVertexNormals();
+        const terrain = new THREE.Mesh(
+          geo,
+          new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 1,
+            metalness: 0,
+            flatShading: true,
+          }),
+        );
+        terrain.receiveShadow = true;
+        scene.add(terrain);
+      }
+
+      // Dirt road following the flattened terrain strip.
+      {
+        const geo = new THREE.PlaneGeometry(190, 7.4, 110, 1);
+        geo.rotateX(-Math.PI / 2);
+        const pos = geo.attributes.position;
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const z = pos.getZ(i) + 5;
+          pos.setZ(i, z);
+          pos.setY(i, terrainHeight(x, z) + 0.07);
+        }
+        geo.computeVertexNormals();
+        const road = new THREE.Mesh(
+          geo,
+          new THREE.MeshStandardMaterial({
+            color: 0x4d3d2a,
+            roughness: 1,
+            polygonOffset: true,
+            polygonOffsetFactor: -1,
+            polygonOffsetUnits: -1,
+          }),
+        );
+        road.receiveShadow = true;
+        scene.add(road);
+      }
+
+      // Animated ocean.
+      let oceanGeometry;
+      let oceanBase;
+      {
+        oceanGeometry = new THREE.PlaneGeometry(205, 58, 72, 18);
+        oceanGeometry.rotateX(-Math.PI / 2);
+        oceanBase = oceanGeometry.attributes.position.array.slice();
+        const ocean = new THREE.Mesh(
+          oceanGeometry,
+          new THREE.MeshStandardMaterial({
+            color: new THREE.Color(0x143751),
+            roughness: 0.42,
+            metalness: 0.02,
+            envMapIntensity: 0.18,
+          }),
+        );
+        ocean.position.set(0, -0.62, -49);
+        ocean.receiveShadow = true;
+        scene.add(ocean);
+        for (let i = 0; i < 3; i++) {
+          const foamGeo = new THREE.PlaneGeometry(200, 0.38, 1, 1);
+          foamGeo.rotateX(-Math.PI / 2);
+          const foam = new THREE.Mesh(
+            foamGeo,
+            new THREE.MeshBasicMaterial({
+              color: 0xdfe9ec,
+              transparent: true,
+              opacity: 0.17 - i * 0.04,
+              depthWrite: false,
+            }),
+          );
+          foam.position.set(0, -0.5 + i * 0.015, -20.5 - i * 2.2);
+          scene.add(foam);
+        }
+      }
+
+      // Crater scorch discs.
+      {
+        const discGeo = new THREE.CircleGeometry(1, 28);
+        discGeo.rotateX(-Math.PI / 2);
+        const discMat = new THREE.MeshBasicMaterial({
+          color: 0x211c16,
+          transparent: true,
+          opacity: 0.58,
+          depthWrite: false,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+        });
+        craterDefs.forEach((crater) => {
+          const disc = new THREE.Mesh(discGeo, discMat);
+          disc.scale.set(crater.r, 1, crater.r);
+          disc.position.set(crater.x, terrainHeight(crater.x, crater.z) + 0.18, crater.z);
+          scene.add(disc);
+        });
+      }
+
+      const dummy = new THREE.Object3D();
+      // Instanced grass and rocks keep drawing cost bounded.
+      {
+        const grass = new THREE.InstancedMesh(
+          new THREE.ConeGeometry(0.16, 0.78, 5),
+          new THREE.MeshStandardMaterial({ color: 0x66713a, roughness: 1 }),
+          260,
+        );
+        for (let i = 0; i < 260; i++) {
+          let x = -96 + hash(i + 1001) * 192;
+          let z = -28 + hash(i + 1031) * 62;
+          if (Math.abs(z - 5) < 5) z += z < 5 ? -7 : 7;
+          if (z < -16) z = -16 + hash(i + 1061) * 5;
+          const s = 0.65 + hash(i + 1091) * 1.15;
+          dummy.position.set(x, terrainHeight(x, z) + 0.32 * s, z);
+          dummy.rotation.set((hash(i + 1121) - 0.5) * 0.35, hash(i + 1151) * Math.PI, (hash(i + 1181) - 0.5) * 0.35);
+          dummy.scale.set(s, s, s);
+          dummy.updateMatrix();
+          grass.setMatrixAt(i, dummy.matrix);
+        }
+        grass.instanceMatrix.needsUpdate = true;
+        grass.receiveShadow = true;
+        scene.add(grass);
+
+        const rocks = new THREE.InstancedMesh(
+          new THREE.DodecahedronGeometry(0.45, 0),
+          new THREE.MeshStandardMaterial({ color: 0x6b675d, roughness: 1 }),
+          120,
+        );
+        for (let i = 0; i < 120; i++) {
+          const x = -94 + hash(i + 2001) * 188;
+          let z = -22 + hash(i + 2031) * 54;
+          if (Math.abs(z - 5) < 4.4) z += z < 5 ? -6 : 6;
+          const s = 0.35 + hash(i + 2061) * 1.25;
+          dummy.position.set(x, terrainHeight(x, z) + 0.16 * s, z);
+          dummy.rotation.set(hash(i + 2091) * 3, hash(i + 2121) * 3, hash(i + 2151) * 3);
+          dummy.scale.set(s * (0.8 + hash(i + 2181) * 0.7), s * 0.62, s);
+          dummy.updateMatrix();
+          rocks.setMatrixAt(i, dummy.matrix);
+        }
+        rocks.instanceMatrix.needsUpdate = true;
+        rocks.castShadow = true;
+        rocks.receiveShadow = true;
+        scene.add(rocks);
+      }
+
+      function makeSandbagLine(x, z, ry, length) {
+        const group = new THREE.Group();
+        group.position.set(x, terrainHeight(x, z), z);
+        group.rotation.y = ry;
+        const cols = Math.max(3, Math.round(length / 0.72));
+        const bags = new THREE.InstancedMesh(
+          new THREE.SphereGeometry(0.5, 10, 7),
+          MAT.sandbag,
+          cols * 3,
+        );
+        let index = 0;
+        for (let row = 0; row < 3; row++) {
+          for (let col = 0; col < cols; col++) {
+            dummy.position.set(
+              -length / 2 + col * 0.72 + (row % 2) * 0.3,
+              0.24 + row * 0.32,
+              (hash(index + 3001) - 0.5) * 0.08,
+            );
+            dummy.rotation.set(0, hash(index + 3031) * 0.35, 0);
+            dummy.scale.set(0.88, 0.36, 0.52);
+            dummy.updateMatrix();
+            bags.setMatrixAt(index++, dummy.matrix);
+          }
+        }
+        bags.instanceMatrix.needsUpdate = true;
+        bags.castShadow = true;
+        bags.receiveShadow = true;
+        group.add(bags);
+        scene.add(group);
+        return group;
+      }
+      makeSandbagLine(-16, 10.5, 0.08, 13);
+      makeSandbagLine(15, -15.5, -0.05, 15);
+      makeSandbagLine(35, -14.2, 0.04, 12);
+      makeSandbagLine(-36, -7, 0.22, 10);
+
+      function makeBarbedWire(x, z, ry, length) {
+        const group = new THREE.Group();
+        group.position.set(x, terrainHeight(x, z), z);
+        group.rotation.y = ry;
+        const ringGeo = new THREE.TorusGeometry(0.55, 0.025, 6, 18);
+        const count = Math.max(4, Math.floor(length / 1.05));
+        for (let i = 0; i < count; i++) {
+          const lx = -length / 2 + i * 1.05;
+          const ring = new THREE.Mesh(ringGeo, MAT.darkMetal);
+          ring.position.set(lx, 0.58, 0);
+          ring.rotation.y = Math.PI / 2;
+          ring.castShadow = true;
+          group.add(ring);
+          if (i % 3 === 0) cylLow(group, MAT.wood, 0.06, 1.1, lx, 0.52, 0, 0, 0, 0.1);
+        }
+        scene.add(group);
+      }
+      makeBarbedWire(-8, -15.8, 0, 24);
+      makeBarbedWire(28, -17.5, 0, 30);
+      makeBarbedWire(-44, 11, 0.12, 18);
+
+      function makeBeachObstacle(x, z, s) {
+        const group = new THREE.Group();
+        group.position.set(x, terrainHeight(x, z) + 0.45 * s, z);
+        box(group, MAT.darkMetal, 2.6 * s, 0.22 * s, 0.22 * s, 0, 0, 0, 0.7, 0.4, 0.2);
+        box(group, MAT.darkMetal, 2.6 * s, 0.22 * s, 0.22 * s, 0, 0, 0, -0.5, -0.7, 0.75);
+        box(group, MAT.darkMetal, 2.6 * s, 0.22 * s, 0.22 * s, 0, 0, 0, 0.2, 1.1, -0.65);
+        scene.add(group);
+      }
+      for (let i = 0; i < 10; i++) {
+        makeBeachObstacle(4 + i * 5.2 + hash(i + 3501) * 2, -18.5 - hash(i + 3531) * 2.5, 0.9 + hash(i + 3561) * 0.35);
+      }
+
+      function makeTree(x, z, s, bare) {
+        const group = new THREE.Group();
+        group.position.set(x, terrainHeight(x, z), z);
+        group.rotation.y = hash(Math.floor(x * 10 + z)) * Math.PI;
+        cyl(group, MAT.trunk, 0.16 * s, 3.2 * s, 0, 1.55 * s, 0, 0.04, 0, 0.08);
+        if (bare) {
+          cyl(group, MAT.trunk, 0.07 * s, 2.0 * s, 0.55 * s, 3.25 * s, 0, 0, 0, -0.75);
+          cyl(group, MAT.trunk, 0.06 * s, 1.7 * s, -0.48 * s, 3.45 * s, 0.1, 0.35, 0, 0.8);
+          cyl(group, MAT.trunk, 0.05 * s, 1.35 * s, 0.05, 3.8 * s, -0.42 * s, 0.7, 0, 0.1);
+        } else {
+          ball(group, MAT.leaf, 2.5 * s, 1.8 * s, 2.3 * s, 0, 3.5 * s, 0);
+          ball(group, MAT.leaf, 1.7 * s, 1.25 * s, 1.55 * s, 0.75 * s, 4.15 * s, 0.25 * s);
+          ball(group, MAT.leaf, 1.45 * s, 1.1 * s, 1.35 * s, -0.75 * s, 4.0 * s, -0.25 * s);
+        }
+        scene.add(group);
+      }
+      [[-58,-13,1.1,0],[-46,18,1.2,1],[-29,-18,1,0],[-13,20,1.25,0],[2,-19,1.05,1],[16,19,1.15,0],[31,-8,0.95,1],[48,14,1.2,0],[62,-12,1.05,0],[-66,8,1,1],[58,22,1.1,1],[-5,25,0.9,0]].forEach((t) => makeTree(t[0], t[1], t[2], Boolean(t[3])));
+
+      function makeBuilding(x, z, w, h, d, ry, material) {
+        const group = new THREE.Group();
+        group.position.set(x, terrainHeight(x, z), z);
+        group.rotation.y = ry;
+        box(group, material, w, h, 0.38, 0, h / 2, d / 2);
+        box(group, material, w * 0.78, h * 0.72, 0.38, -w * 0.08, h * 0.36, -d / 2);
+        box(group, material, 0.38, h * 0.86, d, -w / 2, h * 0.43, 0);
+        box(group, material, 0.38, h * 0.55, d * 0.72, w / 2, h * 0.27, -d * 0.08);
+        for (let i = 0; i < 3; i++) {
+          const wh = h * (0.16 + hash(x + i * 13) * 0.22);
+          box(group, material, w * 0.18, wh, 0.42, -w * 0.32 + i * w * 0.31, h + wh / 2 - 0.05, d / 2);
+        }
+        for (let row = 0; row < 2; row++) {
+          for (let col = 0; col < 3; col++) {
+            const win = box(group, MAT.window, 0.72, 0.95, 0.08, -w * 0.3 + col * w * 0.3, h * (0.35 + row * 0.3), d / 2 + 0.23);
+            win.castShadow = false;
+          }
+        }
+        box(group, MAT.roof, w * 0.82, 0.22, 0.28, -w * 0.05, h * 0.98, -d * 0.18, 0, 0.08, 0.18);
+        box(group, MAT.roof, w * 0.62, 0.2, 0.25, w * 0.1, h * 0.9, d * 0.12, 0.12, -0.12, -0.28);
+        cone(group, MAT.stoneDark, 1.1, 0.75, -w * 0.28, 0.32, d * 0.66);
+        box(group, MAT.stoneDark, 1.2, 0.55, 0.8, w * 0.27, 0.25, d * 0.68, 0.1, 0.4, 0.15);
+        box(group, MAT.wood, 2.2, 0.18, 0.24, w * 0.05, 0.65, d * 0.64, 0, 0.2, 0.35);
+        scene.add(group);
+      }
+      makeBuilding(-50, -15, 10, 7.5, 7, 0.08, MAT.brick);
+      makeBuilding(-33, -16, 8.5, 6.2, 6.5, -0.06, MAT.stone);
+      makeBuilding(4, -17, 11, 8.2, 7.5, 0.04, MAT.stone);
+      makeBuilding(21, -16, 8, 5.8, 6, -0.1, MAT.brick);
+      makeBuilding(-62, -10, 7.5, 5.4, 6, 0.18, MAT.stone);
+
+      function makeTank(scale = 1) {
+        const group = new THREE.Group();
+        const wheels = [];
+        [-1.03, 1.03].forEach((side) => {
+          box(group, MAT.track, 4.75, 0.84, 0.64, 0, 0.48, side);
+          box(group, MAT.oliveDark, 4.85, 0.16, 0.72, 0, 0.99, side);
+          for (let i = 0; i < 5; i++) {
+            const wheel = cyl(group, MAT.darkMetal, 0.31, 0.13, -1.78 + i * 0.89, 0.47, side + Math.sign(side) * 0.34, Math.PI / 2, 0, 0);
+            wheels.push(wheel);
+          }
+        });
+        box(group, MAT.olive, 4.5, 0.68, 2.05, 0, 1.02, 0);
+        box(group, MAT.oliveLight, 3.9, 0.56, 1.82, -0.08, 1.55, 0);
+        box(group, MAT.olive, 0.92, 0.78, 1.82, 2.08, 1.22, 0, 0, 0, -0.42);
+        box(group, MAT.oliveDark, 0.72, 0.52, 1.65, -2.08, 1.25, 0, 0, 0, 0.18);
+        ball(group, MAT.window, 0.18, 0.14, 0.2, 2.34, 1.22, -0.62).castShadow = false;
+        ball(group, MAT.window, 0.18, 0.14, 0.2, 2.34, 1.22, 0.62).castShadow = false;
+        const turret = new THREE.Group();
+        turret.position.set(-0.12, 1.95, 0);
+        group.add(turret);
+        const turretBody = cyl(turret, MAT.olive, 0.83, 0.58, 0, 0, 0);
+        turretBody.scale.x = 2.25;
+        turretBody.scale.z = 1.62;
+        cyl(turret, MAT.oliveDark, 0.28, 0.17, -0.08, 0.36, 0);
+        box(turret, MAT.oliveDark, 0.68, 0.42, 1.05, -0.92, -0.02, 0);
+        const barrelGroup = new THREE.Group();
+        barrelGroup.position.set(0.82, 0.04, 0);
+        turret.add(barrelGroup);
+        box(barrelGroup, MAT.oliveDark, 0.38, 0.44, 0.58, 0, 0, 0);
+        cyl(barrelGroup, MAT.darkMetal, 0.087, 3.0, 1.58, 0, 0, 0, 0, Math.PI / 2);
+        cyl(barrelGroup, MAT.darkMetal, 0.13, 0.38, 3.05, 0, 0, 0, 0, Math.PI / 2);
+        const flash = makeSprite(glowTexture, 0xffb15e, 0, THREE.AdditiveBlending);
+        flash.position.set(3.42, 0, 0);
+        flash.scale.set(1.65, 1.65, 1);
+        barrelGroup.add(flash);
+        cyl(group, MAT.darkMetal, 0.025, 1.55, -0.82, 2.75, -0.38, 0, 0, 0.1);
+        box(group, MAT.wood, 0.72, 0.38, 0.62, -1.85, 1.72, -0.52, 0, 0.15, 0);
+        box(group, MAT.canvas, 0.62, 0.3, 0.82, -1.72, 1.74, 0.48, 0, -0.1, 0);
+        group.scale.setScalar(scale);
+        return { group, turret, barrelGroup, flash, wheels, baseBarrelX: 0.82 };
+      }
+
+      function makeTruck() {
+        const group = new THREE.Group();
+        box(group, MAT.oliveDark, 5.4, 0.42, 2.0, 0, 0.78, 0);
+        box(group, MAT.olive, 1.35, 1.05, 1.85, 1.88, 1.48, 0);
+        box(group, MAT.oliveLight, 1.05, 0.55, 1.68, 2.92, 1.08, 0);
+        const windshield = box(group, MAT.window, 0.1, 0.55, 1.45, 2.55, 1.72, 0, 0, 0, -0.16);
+        windshield.castShadow = false;
+        box(group, MAT.canvas, 3.25, 1.22, 2.0, -1.02, 1.58, 0);
+        cyl(group, MAT.canvas, 0.98, 3.2, -1.02, 2.14, 0, 0, 0, Math.PI / 2);
+        [[-1.85, -1.04], [-1.85, 1.04], [1.95, -1.04], [1.95, 1.04]].forEach(([x, z]) => {
+          cyl(group, MAT.track, 0.43, 0.18, x, 0.43, z, Math.PI / 2, 0, 0);
+        });
+        box(group, MAT.wood, 0.55, 0.35, 0.55, -2.2, 1.36, -0.55);
+        box(group, MAT.oliveDark, 0.45, 0.3, 0.65, -2.25, 1.38, 0.42);
+        return { group };
+      }
+
+      function makeSoldier(crouch = false) {
+        const group = new THREE.Group();
+        const legs = [];
+        const arms = [];
+        [-0.15, 0.15].forEach((z, idx) => {
+          const pivot = new THREE.Group();
+          pivot.position.set(0, 0.96, z);
+          group.add(pivot);
+          box(pivot, idx ? MAT.uniformDark : MAT.uniform, 0.2, 0.84, 0.22, 0, -0.4, 0);
+          box(pivot, MAT.track, 0.31, 0.12, 0.22, 0.06, -0.84, 0);
+          legs.push(pivot);
+        });
+        const torso = new THREE.Group();
+        torso.position.set(0, 1.0, 0);
+        group.add(torso);
+        box(torso, MAT.uniform, 0.5, 0.68, 0.62, 0, 0.34, 0);
+        box(torso, MAT.canvas, 0.28, 0.48, 0.46, -0.37, 0.36, 0);
+        box(torso, MAT.wood, 0.52, 0.1, 0.64, 0, 0.05, 0);
+        ball(torso, MAT.skin, 0.37, 0.41, 0.37, 0.03, 0.88, 0);
+        ball(torso, MAT.helmet, 0.5, 0.25, 0.5, 0.03, 1.02, 0);
+        cyl(torso, MAT.helmet, 0.28, 0.05, 0.03, 0.96, 0);
+        [-0.4, 0.4].forEach((z) => {
+          const pivot = new THREE.Group();
+          pivot.position.set(0, 0.58, z);
+          torso.add(pivot);
+          box(pivot, MAT.uniform, 0.17, 0.64, 0.19, 0, -0.29, 0);
+          arms.push(pivot);
+        });
+        const rifle = new THREE.Group();
+        rifle.position.set(0.36, 0.42, 0.39);
+        rifle.rotation.z = -0.08;
+        torso.add(rifle);
+        box(rifle, MAT.wood, 1.0, 0.09, 0.1, 0, 0, 0);
+        cyl(rifle, MAT.darkMetal, 0.035, 0.58, 0.72, 0.02, 0, 0, 0, Math.PI / 2);
+        if (crouch) {
+          group.scale.y = 0.78;
+          torso.rotation.z = -0.34;
+          legs[0].rotation.z = 0.55;
+          legs[1].rotation.z = -0.28;
+          arms[0].rotation.z = -0.62;
+          arms[1].rotation.z = -0.95;
+        }
+        return { group, torso, legs, arms, crouch, phase: hash(group.id) * 6.28 };
+      }
+
+      function makeArtillery() {
+        const group = new THREE.Group();
+        [-0.88, 0.88].forEach((z) => cyl(group, MAT.darkMetal, 0.56, 0.16, 0, 0.56, z, Math.PI / 2, 0, 0));
+        cyl(group, MAT.metal, 0.12, 1.85, 0, 0.62, 0, Math.PI / 2, 0, 0);
+        box(group, MAT.oliveDark, 0.2, 1.05, 1.72, 0.24, 1.08, 0, 0, 0, -0.08);
+        box(group, MAT.olive, 2.3, 0.22, 0.24, -1.05, 0.35, -0.5, 0, 0.28, 0.05);
+        box(group, MAT.olive, 2.3, 0.22, 0.24, -1.05, 0.35, 0.5, 0, -0.28, 0.05);
+        const barrelGroup = new THREE.Group();
+        barrelGroup.position.set(0, 1.28, 0);
+        barrelGroup.rotation.z = 0.4;
+        group.add(barrelGroup);
+        cyl(barrelGroup, MAT.darkMetal, 0.115, 4.1, 2.0, 0, 0, 0, 0, Math.PI / 2);
+        cyl(barrelGroup, MAT.darkMetal, 0.16, 0.42, 4.0, 0, 0, 0, 0, Math.PI / 2);
+        const flash = makeSprite(glowTexture, 0xffb15e, 0, THREE.AdditiveBlending);
+        flash.position.set(4.42, 0, 0);
+        flash.scale.set(2.0, 2.0, 1);
+        barrelGroup.add(flash);
+        return { group, barrelGroup, flash, baseBarrelX: 0 };
+      }
+
+      function makePlane() {
+        const group = new THREE.Group();
+        cyl(group, MAT.olive, 0.33, 5.2, 0, 0, 0, 0, 0, Math.PI / 2);
+        ball(group, MAT.oliveLight, 0.72, 0.56, 0.56, 2.58, 0, 0);
+        ball(group, MAT.window, 0.9, 0.34, 0.46, 0.38, 0.3, 0).castShadow = false;
+        box(group, MAT.oliveDark, 0.95, 0.09, 6.1, 0.12, -0.05, 0);
+        box(group, MAT.oliveDark, 0.62, 0.08, 2.25, -2.35, 0.18, 0);
+        box(group, MAT.oliveDark, 0.55, 0.78, 0.08, -2.42, 0.44, 0);
+        const prop = new THREE.Group();
+        prop.position.set(2.94, 0, 0);
+        group.add(prop);
+        const discMaterial = new THREE.MeshBasicMaterial({
+          color: 0xd7dde2,
+          transparent: true,
+          opacity: 0.16,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+        });
+        const disc = cyl(prop, discMaterial, 1.02, 0.035, 0, 0, 0, 0, 0, Math.PI / 2);
+        disc.castShadow = false;
+        box(prop, MAT.darkMetal, 0.07, 2.0, 0.12, 0.02, 0, 0);
+        box(prop, MAT.darkMetal, 0.07, 0.12, 2.0, 0.02, 0, 0);
+        cone(group, MAT.darkMetal, 0.2, 0.55, 3.05, 0, 0, 0, 0, -Math.PI / 2);
+        return { group, prop };
+      }
+
+      function makeShip(scale = 1) {
+        const group = new THREE.Group();
+        box(group, MAT.shipDark, 17, 2.1, 4.1, 0, 0.75, 0);
+        box(group, MAT.ship, 4.6, 1.85, 3.55, 9.8, 0.72, 0, 0, 0.52, 0);
+        box(group, MAT.ship, 15.5, 0.35, 3.7, 0, 1.95, 0);
+        box(group, MAT.ship, 3.2, 1.7, 2.7, -0.8, 2.95, 0);
+        box(group, MAT.shipDark, 1.7, 1.35, 2.1, -0.7, 4.35, 0);
+        cyl(group, MAT.darkMetal, 0.09, 5.4, 2.4, 4.8, 0);
+        cyl(group, MAT.darkMetal, 0.08, 4.4, -4.6, 4.25, 0);
+        [5.8, -6.4].forEach((x) => {
+          cyl(group, MAT.ship, 0.78, 0.55, x, 2.35, 0);
+          cyl(group, MAT.darkMetal, 0.09, 2.6, x + 1.35, 2.48, -0.35, 0, 0, Math.PI / 2 - 0.08);
+          cyl(group, MAT.darkMetal, 0.09, 2.6, x + 1.35, 2.48, 0.35, 0, 0, Math.PI / 2 - 0.08);
+        });
+        group.scale.setScalar(scale);
+        return { group };
+      }
+
+      function makeLandingCraft() {
+        const group = new THREE.Group();
+        box(group, MAT.shipDark, 6.5, 1.35, 3.25, 0, 0.58, 0);
+        box(group, MAT.ship, 5.8, 0.22, 2.7, -0.1, 1.32, 0);
+        box(group, MAT.ship, 5.7, 0.75, 0.22, -0.15, 1.45, -1.52);
+        box(group, MAT.ship, 5.7, 0.75, 0.22, -0.15, 1.45, 1.52);
+        box(group, MAT.ship, 0.18, 1.72, 2.72, 3.42, 0.38, 0, 0, 0, -0.52);
+        box(group, MAT.shipDark, 1.0, 0.85, 1.3, -2.45, 1.65, 0);
+        cyl(group, MAT.darkMetal, 0.06, 2.2, -2.6, 2.7, -0.5);
+        group.rotation.y = -Math.PI / 2;
+        return { group };
+      }
+
+      const flags = [];
+      function makeFlag(x, z, color, phase) {
+        const group = new THREE.Group();
+        group.position.set(x, terrainHeight(x, z), z);
+        cyl(group, MAT.wood, 0.07, 6.2, 0, 3.1, 0);
+        ball(group, MAT.metal, 0.2, 0.2, 0.2, 0, 6.25, 0);
+        const geo = new THREE.PlaneGeometry(3.0, 1.55, 14, 5);
+        geo.translate(1.5, 0, 0);
+        const base = geo.attributes.position.array.slice();
+        const flag = new THREE.Mesh(
+          geo,
+          new THREE.MeshStandardMaterial({ color, side: THREE.DoubleSide, roughness: 0.86 }),
+        );
+        flag.position.set(0.04, 5.25, 0);
+        flag.castShadow = true;
+        group.add(flag);
+        scene.add(group);
+        flags.push({ geometry: geo, base, phase });
+      }
+      makeFlag(6, -4.2, 0x315f9d, 0.2);
+      makeFlag(9.2, -4.4, 0x9d3d36, 1.7);
+      makeFlag(-34, -12.5, 0xc3b280, 3.1);
+
+      const heroTanks = [];
+      function placeTank(x, z, ry, scale, firingOffset) {
+        const tank = makeTank(scale);
+        tank.group.position.set(x, terrainHeight(x, z), z);
+        tank.group.rotation.y = ry;
+        tank.baseX = x;
+        tank.baseZ = z;
+        tank.firingOffset = firingOffset;
+        scene.add(tank.group);
+        heroTanks.push(tank);
+        return tank;
+      }
+      placeTank(-27, -2.2, -0.08, 1.05, 0.4);
+      placeTank(-38, -9.5, 0.12, 0.96, 2.4);
+      placeTank(12, -9.8, -0.18, 0.92, 4.1);
+
+      const convoy = [];
+      function addConvoyVehicle(kind, offset) {
+        const vehicle = kind === "tank" ? makeTank(0.98) : makeTruck();
+        vehicle.group.position.set(-80 + offset, 0, 5);
+        scene.add(vehicle.group);
+        convoy.push({ ...vehicle, kind, offset, firingOffset: offset * 0.11 });
+      }
+      addConvoyVehicle("tank", 78);
+      addConvoyVehicle("truck", 63);
+      addConvoyVehicle("tank", 47);
+      addConvoyVehicle("truck", 31);
+      addConvoyVehicle("tank", 14);
+
+      const artillery = [];
+      [[4.8, -7.5, -0.12], [12.5, 11.5, 0.16], [-18, -13.5, 0.05]].forEach(([x, z, ry], i) => {
+        const item = makeArtillery();
+        item.group.position.set(x, terrainHeight(x, z), z);
+        item.group.rotation.y = ry;
+        item.firingOffset = i * 1.7 + 0.8;
+        scene.add(item.group);
+        artillery.push(item);
+      });
+
+      const marchingSoldiers = [];
+      for (let i = 0; i < 6; i++) {
+        const soldier = makeSoldier(false);
+        soldier.offset = 20 + i * 8.5;
+        soldier.lane = i % 2 ? 1.45 : 8.45;
+        soldier.phase = i * 0.85;
+        scene.add(soldier.group);
+        marchingSoldiers.push(soldier);
+      }
+      const crouchedSoldiers = [];
+      [[-19, 9.2], [-15.5, 9.4], [-12.5, 9.1], [16, -13.8], [20, -13.9], [36, -12.8]].forEach(([x, z], i) => {
+        const soldier = makeSoldier(true);
+        soldier.group.position.set(x, terrainHeight(x, z), z);
+        soldier.group.rotation.y = Math.PI / 2 + (hash(i + 4001) - 0.5) * 0.25;
+        soldier.phase = i * 1.13;
+        scene.add(soldier.group);
+        crouchedSoldiers.push(soldier);
+      });
+      const beachSoldiers = [];
+      for (let i = 0; i < 6; i++) {
+        const soldier = makeSoldier(false);
+        soldier.baseX = 21 + (i % 3) * 3.4 + Math.floor(i / 3) * 10;
+        soldier.phase = i * 0.17;
+        soldier.group.rotation.y = -Math.PI / 2;
+        scene.add(soldier.group);
+        beachSoldiers.push(soldier);
+      }
+
+      const planes = [];
+      for (let i = 0; i < 3; i++) {
+        const plane = makePlane();
+        plane.offset = i * 58 + 12;
+        plane.y = 19 + i * 2.7;
+        plane.z = -30 - i * 6;
+        plane.phase = i * 1.9;
+        plane.group.scale.setScalar(1.1 - i * 0.1);
+        scene.add(plane.group);
+        planes.push(plane);
+      }
+
+      const ships = [];
+      [[-8, -58, 1.05], [38, -62, 0.92], [68, -55, 0.78]].forEach(([x, z, s], i) => {
+        const ship = makeShip(s);
+        ship.baseX = x;
+        ship.baseZ = z;
+        ship.phase = i * 1.4;
+        ship.group.position.set(x, -0.55, z);
+        scene.add(ship.group);
+        ships.push(ship);
+      });
+      const landingCraft = [];
+      [[24, -34], [39, -36]].forEach(([x, z], i) => {
+        const craft = makeLandingCraft();
+        craft.baseX = x;
+        craft.baseZ = z;
+        craft.phase = i * 2.1;
+        craft.group.position.set(x, -0.5, z);
+        scene.add(craft.group);
+        landingCraft.push(craft);
+      });
+
+      // Smoke plumes, convoy dust, explosions, clouds, sun, ash and tracers.
+      const smokePuffs = [];
+      const smokeSources = [
+        { x: -48, y: 4.5, z: -15 }, { x: -30, y: 3.5, z: -16 },
+        { x: 4, y: 5.0, z: -17 }, { x: 23, y: 3.2, z: -16 },
+        { x: -16, y: 1.5, z: -11 }, { x: 42, y: 2.0, z: -13 },
+      ];
+      smokeSources.forEach((source, sourceIndex) => {
+        for (let i = 0; i < 9; i++) {
+          const sprite = makeSprite(smokeTexture, sourceIndex < 4 ? 0x55565a : 0x6a6258, 0.3);
+          scene.add(sprite);
+          smokePuffs.push({
+            sprite,
+            source,
+            phase: fract(i / 9 + sourceIndex * 0.19),
+            scale: 0.8 + hash(sourceIndex * 31 + i + 4101) * 0.55,
+          });
+        }
+      });
+      const dustPuffs = [];
+      for (let i = 0; i < 26; i++) {
+        const sprite = makeSprite(smokeTexture, 0xa58c68, 0.2);
+        scene.add(sprite);
+        dustPuffs.push({
+          sprite,
+          vehicleIndex: i % convoy.length,
+          phase: fract(i * 0.173),
+          side: i % 2 ? 1 : -1,
+          scale: 0.75 + hash(i + 4301) * 0.6,
+        });
+      }
+      const explosions = [];
+      [[-18, -12], [8, -14], [31, -11], [-43, 0], [52, -16]].forEach(([x, z], i) => {
+        const sprite = makeSprite(glowTexture, 0xff9a3c, 0, THREE.AdditiveBlending);
+        const y = terrainHeight(x, z) + 1.2;
+        sprite.position.set(x, y, z);
+        scene.add(sprite);
+        explosions.push({ sprite, x, y, z, period: 3.8 + i * 0.63, offset: i * 1.27 });
+      });
+      const clouds = [];
+      for (let i = 0; i < 11; i++) {
+        const sprite = makeSprite(smokeTexture, 0xd7dee6, 0.13 + hash(i + 4401) * 0.07);
+        sprite.position.set(-110 + hash(i + 4431) * 220, 31 + hash(i + 4461) * 14, -92 - hash(i + 4491) * 35);
+        sprite.scale.set(30 + hash(i + 4521) * 24, 9 + hash(i + 4551) * 5, 1);
+        sprite.material.fog = false;
+        scene.add(sprite);
+        clouds.push({ sprite, offset: hash(i + 4581) * 220, y: sprite.position.y, z: sprite.position.z });
+      }
+      const sunSprite = makeSprite(glowTexture, 0xffd9a0, 0.52, THREE.AdditiveBlending);
+      sunSprite.position.set(-78, 43, -112);
+      sunSprite.scale.set(34, 34, 1);
+      sunSprite.material.fog = false;
+      scene.add(sunSprite);
+
+      let ashGeometry;
+      let ashBase;
+      let ashPhase;
+      {
+        const count = 520;
+        const positions = new Float32Array(count * 3);
+        ashBase = new Float32Array(count * 3);
+        ashPhase = new Float32Array(count);
+        for (let i = 0; i < count; i++) {
+          const x = -82 + hash(i + 5001) * 164;
+          const y = hash(i + 5031) * 23;
+          const z = -48 + hash(i + 5061) * 78;
+          positions.set([x, y, z], i * 3);
+          ashBase.set([x, y, z], i * 3);
+          ashPhase[i] = hash(i + 5091) * Math.PI * 2;
+        }
+        ashGeometry = new THREE.BufferGeometry();
+        ashGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const ash = new THREE.Points(
+          ashGeometry,
+          new THREE.PointsMaterial({
+            color: 0xd8d2c4,
+            size: 0.075,
+            transparent: true,
+            opacity: 0.36,
+            depthWrite: false,
+          }),
+        );
+        scene.add(ash);
+      }
+
+      const tracers = [];
+      function makeTracer(sx, sy, sz, tx, ty, tz, phase) {
+        const material = new THREE.MeshBasicMaterial({
+          color: 0xffb15e,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        });
+        const item = box(scene, material, 1.35, 0.035, 0.035, sx, sy, sz);
+        item.castShadow = false;
+        item.receiveShadow = false;
+        const start = V3(sx, sy, sz);
+        const end = V3(tx, ty, tz);
+        item.rotation.y = -Math.atan2(end.z - start.z, end.x - start.x);
+        item.rotation.z = Math.atan2(end.y - start.y, Math.hypot(end.x - start.x, end.z - start.z));
+        tracers.push({ item, material, start, end, phase });
+      }
+      makeTracer(-18, 1.7, 8.5, -8, 1.3, -13, 0.05);
+      makeTracer(-12, 1.6, 8.5, 2, 1.5, -13, 0.42);
+      makeTracer(17, 1.5, -13, 27, 1.2, -22, 0.68);
+      makeTracer(36, 1.5, -12, 46, 1.1, -21, 0.22);
+      makeTracer(5, 2.2, -7, 18, 2.7, -19, 0.83);
+
+      const cameraPaths = {
+        montage: {
+          pos: [[-54,18,49],[-39,9,29],[-25,4.4,16],[-10,5.2,18],[8,7,23],[22,8,10],[34,6.5,-2],[43,8,-10]],
+          target: [[-25,1,-8],[-24,1.3,-2],[-18,1.5,0],[-3,1.2,5],[6,2,-4],[24,1,-23],[30,1,-26],[31,1,-28]],
+        },
+        battlefield: {
+          pos: [[-50,16,43],[-35,7,24],[-22,3.6,13],[-8,5,18],[5,8,27]],
+          target: [[-25,1,-6],[-23,1.2,-1],[-14,1.5,3],[3,2,-5],[-12,1,-15]],
+        },
+        invasion: {
+          pos: [[-56,11,29],[-36,5.2,17],[-16,4.2,15],[5,5.2,17],[25,8,24]],
+          target: [[-36,1,5],[-19,1,5],[0,1,5],[16,1,5],[29,1,-3]],
+        },
+        coastal: {
+          pos: [[-4,13,19],[10,7,4],[22,5,-6],[34,6.5,-8],[43,8,-10]],
+          target: [[18,0,-25],[25,0,-27],[32,0,-28],[30,1,-27],[31,1,-28]],
+        },
+      };
+      const selectedPath = cameraPaths[environment] || cameraPaths.montage;
+      const cameraCurve = new THREE.CatmullRomCurve3(
+        selectedPath.pos.map(([x, y, z]) => V3(x, y, z)),
+        false,
+        "catmullrom",
+        0.16,
+      );
+      const targetCurve = new THREE.CatmullRomCurve3(
+        selectedPath.target.map(([x, y, z]) => V3(x, y, z)),
+        false,
+        "catmullrom",
+        0.16,
+      );
+      const cameraPos = new THREE.Vector3();
+      const cameraTarget = new THREE.Vector3();
+
+      let buildStats = { objects: 0, meshes: 0, sprites: 0, points: 0 };
+      scene.traverse((object) => {
+        buildStats.objects++;
+        if (object.isMesh) buildStats.meshes++;
+        if (object.isSprite) buildStats.sprites++;
+        if (object.isPoints) buildStats.points++;
+      });
+
+      function firingPulse(t, period, offset) {
+        const p = fract((t + offset) / Math.max(0.8, period / intensity));
+        return {
+          p,
+          flash: p < 0.035 ? 1 - p / 0.035 : 0,
+          recoil: Math.exp(-p * 24) * 0.24,
+        };
+      }
+      function animateSoldierLimbs(soldier, phase, amount = 1) {
+        const swing = Math.sin(phase) * 0.55 * amount;
+        soldier.legs[0].rotation.z = swing;
+        soldier.legs[1].rotation.z = -swing;
+        soldier.arms[0].rotation.z = -swing * 0.72;
+        soldier.arms[1].rotation.z = swing * 0.72 - 0.22;
+      }
+
+      function renderAt(rawT) {
+        const t = Math.max(0, Math.min(DURATION, Number(rawT) || 0));
+        const u = DURATION > 0 ? t / DURATION : 0;
+        const actionT = t * intensity;
+
+        // Convoy and road infantry.
+        convoy.forEach((vehicle) => {
+          const x = -84 + mod(vehicle.offset + actionT * 3.45, 166);
+          const z = 5;
+          const y = terrainHeight(x, z) + 0.03;
+          vehicle.group.position.set(x, y + Math.abs(Math.sin(actionT * 5 + vehicle.offset)) * 0.025, z);
+          const slope = (terrainHeight(x + 1.6, z) - terrainHeight(x - 1.6, z)) / 3.2;
+          vehicle.group.rotation.z = Math.atan(slope) * 0.55;
+          if (vehicle.turret) {
+            vehicle.turret.rotation.y = Math.sin(actionT * 0.32 + vehicle.offset) * 0.22;
+            const pulse = firingPulse(t, 5.4, vehicle.firingOffset);
+            vehicle.barrelGroup.position.x = vehicle.baseBarrelX - pulse.recoil;
+            vehicle.flash.material.opacity = pulse.flash * 0.88;
+            vehicle.flash.material.rotation = vehicle.offset + t * 0.4;
+          }
+        });
+        const leadX = convoy[0]?.group.position.x || 0;
+        marchingSoldiers.forEach((soldier) => {
+          const x = -84 + mod(soldier.offset + actionT * 3.1, 166);
+          const phase = actionT * 6.2 + soldier.phase;
+          soldier.group.position.set(x, terrainHeight(x, soldier.lane) + Math.abs(Math.sin(phase)) * 0.055, soldier.lane);
+          soldier.group.rotation.y = 0;
+          animateSoldierLimbs(soldier, phase, 1);
+        });
+
+        // Stationary/hero armor and infantry.
+        heroTanks.forEach((tank, i) => {
+          const travel = i === 0 ? Math.min(actionT * 0.24, 4.2) : Math.sin(actionT * 0.1 + i) * 0.25;
+          const x = tank.baseX + travel;
+          tank.group.position.x = x;
+          tank.group.position.y = terrainHeight(x, tank.baseZ) + Math.abs(Math.sin(actionT * 3 + i)) * 0.018;
+          tank.turret.rotation.y = Math.sin(actionT * 0.28 + i * 1.7) * 0.3;
+          const pulse = firingPulse(t, 4.8 + i * 0.7, tank.firingOffset);
+          tank.barrelGroup.position.x = tank.baseBarrelX - pulse.recoil;
+          tank.flash.material.opacity = pulse.flash * 0.92;
+          tank.flash.material.rotation = i * 1.3 + t * 0.35;
+        });
+        crouchedSoldiers.forEach((soldier, i) => {
+          soldier.torso.rotation.z = -0.34 + Math.sin(actionT * 0.9 + soldier.phase) * 0.035;
+          soldier.arms[0].rotation.z = -0.62 + Math.sin(actionT * 1.1 + i) * 0.035;
+          soldier.arms[1].rotation.z = -0.95 + Math.cos(actionT * 1.05 + i) * 0.03;
+        });
+        beachSoldiers.forEach((soldier, i) => {
+          const local = fract(u * 1.08 + soldier.phase);
+          const z = -25 + local * 12.5;
+          const x = soldier.baseX + Math.sin(local * 5 + i) * 0.7;
+          const phase = actionT * 5.3 + i * 0.9;
+          soldier.group.position.set(x, terrainHeight(x, z) + Math.abs(Math.sin(phase)) * 0.045, z);
+          animateSoldierLimbs(soldier, phase, 0.88);
+        });
+
+        artillery.forEach((item, i) => {
+          const pulse = firingPulse(t, 5.8 + i * 0.6, item.firingOffset);
+          item.barrelGroup.position.x = item.baseBarrelX - pulse.recoil * 1.25;
+          item.flash.material.opacity = pulse.flash * 0.9;
+          item.flash.material.rotation = i * 0.9 + t * 0.3;
+        });
+
+        // Air and sea elements.
+        planes.forEach((plane, i) => {
+          const x = -95 + mod(plane.offset + actionT * (8.5 - i * 0.7), 195);
+          plane.group.position.set(x, plane.y + Math.sin(actionT * 0.65 + plane.phase) * 0.35, plane.z);
+          plane.group.rotation.set(Math.sin(actionT * 0.45 + plane.phase) * 0.08, 0, Math.sin(actionT * 0.3 + plane.phase) * 0.025);
+          plane.prop.rotation.x = actionT * 42 + plane.phase;
+        });
+        ships.forEach((ship) => {
+          ship.group.position.set(
+            ship.baseX + Math.sin(actionT * 0.05 + ship.phase) * 1.2,
+            -0.55 + Math.sin(actionT * 0.65 + ship.phase) * 0.08,
+            ship.baseZ,
+          );
+          ship.group.rotation.set(
+            Math.sin(actionT * 0.55 + ship.phase) * 0.012,
+            0,
+            Math.sin(actionT * 0.45 + ship.phase) * 0.01,
+          );
+        });
+        landingCraft.forEach((craft) => {
+          craft.group.position.set(
+            craft.baseX,
+            -0.5 + Math.sin(actionT * 0.9 + craft.phase) * 0.09,
+            craft.baseZ + u * 7.5,
+          );
+          craft.group.rotation.set(
+            Math.sin(actionT * 0.75 + craft.phase) * 0.02,
+            -Math.PI / 2,
+            Math.sin(actionT * 0.6 + craft.phase) * 0.015,
+          );
+        });
+
+        // Ocean waves and waving flags.
+        {
+          const pos = oceanGeometry.attributes.position;
+          for (let i = 0; i < pos.count; i++) {
+            const x = oceanBase[i * 3];
+            const z = oceanBase[i * 3 + 2];
+            pos.setY(i, Math.sin(x * 0.18 + actionT * 1.55) * 0.07 + Math.cos(z * 0.34 - actionT * 1.15) * 0.05);
+          }
+          pos.needsUpdate = true;
+          oceanGeometry.computeVertexNormals();
+        }
+        flags.forEach((flag) => {
+          const pos = flag.geometry.attributes.position;
+          for (let i = 0; i < pos.count; i++) {
+            const x = flag.base[i * 3];
+            const y = flag.base[i * 3 + 1];
+            const wave = Math.sin(x * 2.15 - actionT * 6 + flag.phase) * 0.1 * (x / 3) + Math.sin(y * 3 + actionT * 4) * 0.018;
+            pos.setZ(i, wave);
+          }
+          pos.needsUpdate = true;
+          flag.geometry.computeVertexNormals();
+        });
+
+        // Atmosphere and battlefield effects.
+        smokePuffs.forEach((puff) => {
+          const p = fract(actionT * 0.055 + puff.phase);
+          const scale = (3 + p * 11) * puff.scale;
+          puff.sprite.position.set(
+            puff.source.x + p * 5 + Math.sin(actionT * 0.7 + puff.phase * 9) * 0.4,
+            puff.source.y + p * 13,
+            puff.source.z - p * 1.6,
+          );
+          puff.sprite.scale.set(scale, scale * 0.78, 1);
+          puff.sprite.material.opacity = 0.34 * (1 - p) * smoothstep(0, 0.12, p) * Math.min(1.25, intensity);
+          puff.sprite.material.rotation = puff.phase * 2 + actionT * 0.018;
+        });
+        dustPuffs.forEach((puff) => {
+          const vehicle = convoy[puff.vehicleIndex];
+          if (!vehicle) return;
+          const p = fract(actionT * 0.48 + puff.phase);
+          const vp = vehicle.group.position;
+          const scale = (1.4 + p * 4.2) * puff.scale;
+          puff.sprite.position.set(vp.x - 3 - p * 5, vp.y + 0.45 + p * 1.5, vp.z + puff.side * (0.7 + p * 1.1));
+          puff.sprite.scale.set(scale, scale * 0.62, 1);
+          puff.sprite.material.opacity = 0.2 * (1 - p) * Math.min(1.2, intensity);
+        });
+        explosions.forEach((explosion, i) => {
+          const p = fract((t + explosion.offset) / Math.max(1.4, explosion.period / intensity));
+          let opacity = 0;
+          let scale = 1;
+          let lightIntensity = 0;
+          if (p < 0.16) {
+            const local = p / 0.16;
+            opacity = (1 - local) * 0.88;
+            scale = 2 + local * 9.5;
+            lightIntensity = (1 - local) * 28;
+            explosion.sprite.position.y = explosion.y + local * 2.3;
+          }
+          explosion.sprite.material.opacity = opacity;
+          explosion.sprite.scale.set(scale, scale, 1);
+          explosion.sprite.material.rotation = i * 0.7 + t * 0.25;
+          if (i < explosionLights.length) {
+            explosionLights[i].position.set(explosion.x, explosion.y + 1.5, explosion.z);
+            explosionLights[i].intensity = lightIntensity;
+          }
+        });
+        clouds.forEach((cloud) => {
+          cloud.sprite.position.x = -118 + mod(cloud.offset + t * 0.55, 236);
+        });
+        {
+          const pos = ashGeometry.attributes.position;
+          for (let i = 0; i < ashPhase.length; i++) {
+            const bx = ashBase[i * 3];
+            const by = ashBase[i * 3 + 1];
+            const bz = ashBase[i * 3 + 2];
+            pos.setXYZ(
+              i,
+              bx + Math.sin(t * 0.55 + ashPhase[i]) * 0.45,
+              0.25 + mod(by - t * 0.55, 23),
+              bz + Math.cos(t * 0.4 + ashPhase[i]) * 0.3,
+            );
+          }
+          pos.needsUpdate = true;
+        }
+        tracers.forEach((tracer) => {
+          const p = fract(actionT * 0.34 + tracer.phase);
+          tracer.item.position.lerpVectors(tracer.start, tracer.end, p);
+          tracer.item.position.y += Math.sin(p * Math.PI) * 0.35;
+          tracer.material.opacity = p > 0.04 && p < 0.96 ? 0.58 * Math.min(1, intensity) : 0;
+        });
+
+        // Cinematic camera path and move modifiers.
+        cameraCurve.getPoint(clamp01(u), cameraPos);
+        targetCurve.getPoint(clamp01(u), cameraTarget);
+        let fov = lerp(49, 42, smoothstep(0, 1, u));
+        if (cameraMove === "aerial") {
+          cameraPos.y += 10;
+          cameraTarget.y -= 0.4;
+          fov = 46;
+        } else if (cameraMove === "push_in") {
+          cameraPos.lerp(cameraTarget, 0.25 * smoothstep(0, 1, u));
+          fov = lerp(51, 37, smoothstep(0, 1, u));
+        } else if (cameraMove === "pan") {
+          cameraTarget.x += Math.sin(u * Math.PI) * 10;
+          fov = 45;
+        } else if (cameraMove === "tracking") {
+          cameraTarget.x = lerp(cameraTarget.x, leadX, 0.38);
+          cameraPos.x += (leadX + 35) * 0.075;
+          fov = 44;
+        }
+        cameraPos.x += Math.sin(t * 0.65) * 0.075;
+        cameraPos.y += Math.sin(t * 0.9 + 0.4) * 0.05;
+        cameraTarget.x += Math.sin(t * 0.5) * 0.06;
+        camera.position.copy(cameraPos);
+        camera.lookAt(cameraTarget);
+        if (Math.abs(camera.fov - fov) > 0.01) {
+          camera.fov = fov;
+          camera.updateProjectionMatrix();
+        }
+
+        renderer.render(scene, camera);
+        window.__hfAdventureStats = {
+          ...buildStats,
+          calls: renderer.info.render.calls,
+          triangles: renderer.info.render.triangles,
+          environment,
+          cameraMove,
+          intensity,
+        };
+      }
+
+      window.addEventListener("hf-seek", (e) => renderAt(e.detail.time));
+      window.__hfThreeRender = () => renderAt(window.__hfThreeTime || 0);
+      renderAt(0);
+
+      const tl = gsap.timeline({ paused: true });
+      tl.to({ v: 0 }, { v: 1, duration: DURATION, ease: "none" }, 0);
+      window.__timelines["adventure-stage"] = tl;
+    })();
+  </script>
+</template>

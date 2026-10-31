@@ -29,6 +29,7 @@ def test_motion_graphics_template_catalog(api_client: TestClient) -> None:
         "shape",
         "quote",
         "outro",
+        "adventure3d",
     ]
     quote = next(item for item in templates if item["id"] == "quote")
     assert quote["default_request"]["speaker_name"] == "Bilal"
@@ -37,6 +38,14 @@ def test_motion_graphics_template_catalog(api_client: TestClient) -> None:
         "quote_line_1",
         "speaker_name",
         "response_line",
+    }
+    adventure = next(item for item in templates if item["id"] == "adventure3d")
+    assert adventure["default_request"]["environment"] == "montage"
+    assert adventure["default_variables"]["camera_move"] == "cinematic"
+    assert {entry["id"] for entry in adventure["variable_schema"]} >= {
+        "environment",
+        "camera_move",
+        "intensity",
     }
 
 
@@ -66,6 +75,37 @@ def test_motion_graphics_preview_uses_parser_dialogue(api_client: TestClient) ->
     assert payload["request"]["response_speaker"] == "Zara"
     assert payload["request"]["response_line"] == "Yes, locally."
     assert payload["variables"]["has_response"] is True
+
+
+def test_adventure3d_preview_derives_environment_from_script(
+    api_client: TestClient,
+) -> None:
+    response = api_client.post(
+        "/api/jobs/motion-graphics/preview",
+        json={
+            "template": "adventure3d",
+            "request": {"duration_sec": 18.235},
+            "script_text": (
+                "World War II began in 1939 when Germany invaded Poland. "
+                "Great Britain and France declared war. Battles reached "
+                "Normandy and the Pacific islands."
+            ),
+            "mode": "build_only",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["template"] == "adventure3d"
+    assert payload["request"]["environment"] == "montage"
+    assert payload["request"]["duration_sec"] == 18.235
+    assert payload["request"]["caption_lines"] == [
+        "THE GLOBAL CONFLICT",
+        "1939 · INVASION",
+        "WAR DECLARED",
+        "NORMANDY",
+    ]
+    assert payload["variables"]["camera_move"] == "cinematic"
 
 
 def test_motion_graphics_build_only_job_and_artifact(api_client: TestClient) -> None:

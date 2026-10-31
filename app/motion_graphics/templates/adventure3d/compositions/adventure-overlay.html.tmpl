@@ -1,0 +1,179 @@
+<template>
+  <style>
+    #root {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      color: var(--ink_color, #ffffff);
+      font-family: Inter, Arial, sans-serif;
+      pointer-events: none;
+    }
+    .veil-top,
+    .veil-bottom {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 150px;
+    }
+    .veil-top {
+      top: 0;
+      background: linear-gradient(to bottom, rgba(3, 6, 10, 0.48), rgba(3, 6, 10, 0));
+    }
+    .veil-bottom {
+      bottom: 0;
+      height: 230px;
+      background: linear-gradient(to top, rgba(3, 6, 10, 0.58), rgba(3, 6, 10, 0));
+    }
+    #adventure-scene-label {
+      position: absolute;
+      top: 46px;
+      left: 58px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-family: "Space Mono", ui-monospace, monospace;
+      font-size: 21px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      text-shadow: 0 3px 18px rgba(0, 0, 0, 0.9);
+      opacity: 0;
+    }
+    #adventure-scene-label::before {
+      content: "";
+      width: 42px;
+      height: 3px;
+      background: var(--accent_color, #e0a458);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);
+    }
+    #adventure-captions {
+      position: absolute;
+      left: 58px;
+      bottom: 58px;
+      width: 980px;
+      height: 84px;
+    }
+    .adventure-caption {
+      position: absolute;
+      left: 0;
+      bottom: 0;
+      max-width: 980px;
+      padding-left: 22px;
+      border-left: 5px solid var(--accent_color, #e0a458);
+      font-family: Montserrat, Inter, Arial, sans-serif;
+      font-size: 39px;
+      font-weight: 900;
+      line-height: 1.08;
+      letter-spacing: 0.055em;
+      text-transform: uppercase;
+      white-space: nowrap;
+      text-shadow: 0 5px 26px rgba(0, 0, 0, 0.92);
+      opacity: 0;
+    }
+    .adventure-caption small {
+      display: block;
+      margin-bottom: 7px;
+      color: var(--secondary_color, #6e93b8);
+      font-family: "Space Mono", ui-monospace, monospace;
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+    }
+  </style>
+  <div
+    id="root"
+    data-composition-id="adventure-overlay"
+    data-width="1920"
+    data-height="1080"
+    data-composition-variables='[{"id":"scene_label","type":"string","label":"Scene label","default":"WWII · 3D ADVENTURE"},{"id":"caption_count","type":"number","label":"Caption count","default":4,"min":0,"max":4,"step":1},{"id":"caption_1","type":"string","label":"Caption 1","default":"THE GLOBAL CONFLICT"},{"id":"caption_2","type":"string","label":"Caption 2","default":"INVASION"},{"id":"caption_3","type":"string","label":"Caption 3","default":"WAR DECLARED"},{"id":"caption_4","type":"string","label":"Caption 4","default":"LAND · SEA · AIR"},{"id":"show_caption","type":"boolean","label":"Show minimal captions","default":true},{"id":"ink_color","type":"color","label":"Ink color","default":"#ffffff"},{"id":"accent_color","type":"color","label":"Accent color","default":"#e0a458"},{"id":"secondary_color","type":"color","label":"Secondary color","default":"#6e93b8"}]'
+  >
+    <div class="veil-top clip" data-start="0" data-duration="__DURATION__" data-track-index="0"></div>
+    <div class="veil-bottom clip" data-start="0" data-duration="__DURATION__" data-track-index="0"></div>
+    <div id="adventure-scene-label" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="1" data-var-text="scene_label">WWII · 3D ADVENTURE</div>
+    <div id="adventure-captions" class="clip" data-start="0" data-duration="__DURATION__" data-track-index="2">
+      <div id="adventure-caption-1" class="adventure-caption"><small>01</small><span data-var-text="caption_1">THE GLOBAL CONFLICT</span></div>
+      <div id="adventure-caption-2" class="adventure-caption"><small>02</small><span data-var-text="caption_2">INVASION</span></div>
+      <div id="adventure-caption-3" class="adventure-caption"><small>03</small><span data-var-text="caption_3">WAR DECLARED</span></div>
+      <div id="adventure-caption-4" class="adventure-caption"><small>04</small><span data-var-text="caption_4">LAND · SEA · AIR</span></div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const DURATION = __DURATION__;
+      const defaults = {
+        caption_count: 4,
+        caption_1: "THE GLOBAL CONFLICT",
+        caption_2: "INVASION",
+        caption_3: "WAR DECLARED",
+        caption_4: "LAND · SEA · AIR",
+        show_caption: true,
+      };
+      let runtimeVariables = {};
+      try {
+        runtimeVariables = window.__hyperframes?.getVariables?.() || {};
+      } catch (error) {
+        runtimeVariables = {};
+      }
+      const vars = { ...defaults, ...runtimeVariables };
+      const captionCount = Math.max(
+        0,
+        Math.min(4, Math.round(Number(vars.caption_count) || 0)),
+      );
+      const showCaption = vars.show_caption !== false && captionCount > 0;
+      const captionWrap = document.getElementById("adventure-captions");
+      if (captionWrap && !showCaption) captionWrap.style.display = "none";
+
+      const captions = [1, 2, 3, 4].map((index) =>
+        document.getElementById(`adventure-caption-${index}`),
+      );
+      captions.forEach((element, index) => {
+        if (!element) return;
+        const text = String(vars[`caption_${index + 1}`] || "").trim();
+        if (!showCaption || index >= captionCount || !text) {
+          element.style.display = "none";
+        }
+      });
+
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo(
+        "#adventure-scene-label",
+        { opacity: 0, x: -26 },
+        { opacity: 1, x: 0, duration: 0.55, ease: "power3.out" },
+        0.18,
+      );
+      tl.to(
+        "#adventure-scene-label",
+        { opacity: 0, duration: 0.45, ease: "power2.in" },
+        Math.max(0.2, DURATION - 0.55),
+      );
+
+      if (showCaption) {
+        const segment = DURATION / captionCount;
+        captions.slice(0, captionCount).forEach((element, index) => {
+          if (!element || element.style.display === "none") return;
+          const start = index * segment;
+          const end = index === captionCount - 1 ? DURATION : (index + 1) * segment;
+          tl.fromTo(
+            element,
+            { opacity: 0, y: 24, filter: "blur(5px)" },
+            {
+              opacity: 1,
+              y: 0,
+              filter: "blur(0px)",
+              duration: 0.5,
+              ease: "power3.out",
+            },
+            start + 0.22,
+          );
+          tl.to(
+            element,
+            { opacity: 0, y: -14, filter: "blur(4px)", duration: 0.42, ease: "power2.in" },
+            Math.max(start + 0.75, end - 0.5),
+          );
+        });
+      }
+
+      window.__timelines["adventure-overlay"] = tl;
+    })();
+  </script>
+</template>

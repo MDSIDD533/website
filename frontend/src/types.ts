@@ -170,7 +170,13 @@ export interface JobItem {
   updated_at: string;
 }
 
-export type MotionTemplateId = 'title' | 'data' | 'shape' | 'quote' | 'outro';
+export type MotionTemplateId =
+  | 'title'
+  | 'data'
+  | 'shape'
+  | 'quote'
+  | 'outro'
+  | 'adventure3d';
 export type MotionJobMode = 'build_only' | 'render';
 export type MotionJobQuality = 'draft' | 'standard' | 'high';
 

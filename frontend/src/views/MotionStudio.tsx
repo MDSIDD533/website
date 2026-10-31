@@ -239,7 +239,7 @@ export const MotionStudioView: React.FC<{
             <div className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
               <Clapperboard className="h-4 w-4 text-amber-400" /> 1. Choose Auto or a manual template
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
               <button
                 onClick={() => selectTemplate('auto')}
                 className={`rounded-xl border p-3 text-left transition ${

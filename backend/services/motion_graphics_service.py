@@ -32,12 +32,15 @@ from typing import Any, Callable, Mapping, Sequence
 
 from app.motion_graphics.builder import (
     HYPERFRAMES_VERSION,
+    Adventure3DBuildRequest,
     BuiltProject,
     DataBuildRequest,
     OutroBuildRequest,
     QuoteBuildRequest,
     ShapeBuildRequest,
     TitleBuildRequest,
+    adventure3d_request_from_text,
+    build_adventure3d_project,
     build_data_project,
     build_outro_project,
     build_quote_project,
@@ -116,6 +119,16 @@ TEMPLATE_SPECS: dict[str, MotionTemplateSpec] = {
         request_type=OutroBuildRequest,
         build_function=build_outro_project,
     ),
+    "adventure3d": MotionTemplateSpec(
+        template_id="adventure3d",
+        label="Adventure 3D",
+        description=(
+            "Procedural Three.js battlefield with tanks, infantry, artillery, "
+            "aircraft, ships, smoke and a cinematic camera path."
+        ),
+        request_type=Adventure3DBuildRequest,
+        build_function=build_adventure3d_project,
+    ),
 }
 
 TEMPLATE_IDS = tuple(TEMPLATE_SPECS)
@@ -183,11 +196,12 @@ def prepare_request(
 ) -> tuple[Any, list[dict[str, Any]]]:
     """Validate a template request and optionally derive copy from a script.
 
-    The rule-based parser is reused exactly as-is.  Only templates with an
-    existing scene adapter (Title and Quote) derive copy from parser output;
-    the others keep their explicit request values/defaults and merely return
-    the parsed scenes for preview/audit.  That avoids inventing chart data or
-    marketing copy that the parser never claimed to extract.
+    The rule-based parser is reused exactly as-is.  Templates with an
+    existing scene adapter (Title, Quote and Adventure3D) derive bounded
+    inputs from the supplied script; the others keep their explicit request
+    values/defaults and merely return the parsed scenes for preview/audit.
+    Adventure3D's adapter only chooses a local procedural environment and
+    short captions from explicit script keywords—it never downloads media.
     """
 
     spec = template_spec(template_id)
@@ -231,6 +245,17 @@ def prepare_request(
                 ),
             )
             request = quote_request_from_scene(scene, **adapter_values)
+            if payload:
+                request = replace(request, **payload)
+            return request, scenes
+
+        if scenes and template_id == "adventure3d":
+            duration_sec = payload.pop(
+                "duration_sec", Adventure3DBuildRequest().duration_sec
+            )
+            request = adventure3d_request_from_text(
+                script_text, duration_sec=duration_sec
+            )
             if payload:
                 request = replace(request, **payload)
             return request, scenes

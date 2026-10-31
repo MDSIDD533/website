@@ -40,7 +40,9 @@ class RenderProjectRequest(BaseModel):
 
 
 class MotionGraphicsJobRequest(BaseModel):
-    template: Literal["title", "data", "shape", "quote", "outro"]
+    template: Literal[
+        "title", "data", "shape", "quote", "outro", "adventure3d"
+    ]
     request: dict[str, Any] = Field(default_factory=dict)
     script_text: str = Field(default="", max_length=20000)
     mode: Literal["build_only", "render"] = "render"
