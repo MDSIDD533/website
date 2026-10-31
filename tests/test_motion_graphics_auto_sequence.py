@@ -77,6 +77,8 @@ def test_dialogue_audio_timeline_places_parser_dialogue(tmp_path: Path) -> None:
             "duration_sec": 0.1,
             "engine_used": "fake-local-tts",
             "voice_id": f"fake-{speaker.lower()}",
+            "voice_model": f"fake-{speaker.lower()}.onnx",
+            "model_path": f"/fake/{speaker.lower()}.onnx",
             "normalized_text": text,
             "wav_path": str(path),
         }
@@ -92,7 +94,12 @@ def test_dialogue_audio_timeline_places_parser_dialogue(tmp_path: Path) -> None:
     assert metadata["duration_sec"] == 15.0
     assert metadata["line_count"] == 2
     assert metadata["engines"] == ["fake-local-tts"]
+    assert metadata["voice_models"] == ["fake-bilal.onnx", "fake-zara.onnx"]
     assert [line["speaker"] for line in metadata["lines"]] == ["Bilal", "Zara"]
+    assert [line["voice_model"] for line in metadata["lines"]] == [
+        "fake-bilal.onnx",
+        "fake-zara.onnx",
+    ]
     assert [line["text"] for line in metadata["lines"]] == [
         "Guard your left flank!",
         "Ready!",

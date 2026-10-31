@@ -21,6 +21,38 @@ _ESPEAK_LOCK = threading.Lock()
 _ESPEAK_LIB: Any = None
 _ESPEAK_SR: int = 22050
 
+PIPER_VOICE_SLOT_DIRNAME = "piper-onnx-custom-voice"
+PIPER_EN_MALE_MODEL = "en_US-joe-medium.onnx"
+PIPER_EN_FEMALE_MODEL = "en_US-amy-medium.onnx"
+
+_PIPER_LOCK = threading.RLock()
+_PIPER_VOICE_CACHE: dict[tuple[str, str, int, int], Any] = {}
+
+# Canonical English Piper filenames used when a catalog voice does not name an
+# explicit model.  The first entry in each tuple is the model installed in
+# ``models_data/piper-onnx-custom-voice`` for this project; the remaining
+# names let operators drop in another compatible licensed English voice.
+_PIPER_MODEL_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "male": (
+        PIPER_EN_MALE_MODEL,
+        "en_US-hfc_male-medium.onnx",
+        "en_US-ryan-medium.onnx",
+        "en_US-john-medium.onnx",
+        "en_US-bryce-medium.onnx",
+        "en_GB-alan-medium.onnx",
+        "en_GB-northern_english_male-medium.onnx",
+    ),
+    "female": (
+        PIPER_EN_FEMALE_MODEL,
+        "en_US-hfc_female-medium.onnx",
+        "en_GB-cori-medium.onnx",
+        "en_GB-alba-medium.onnx",
+        "en_US-kristin-medium.onnx",
+        "en_US-ljspeech-medium.onnx",
+        "en_GB-jenny_dioco-medium.onnx",
+    ),
+}
+
 VOICE_CATALOG: list[dict[str, Any]] = [
     {
         "id": "en_narrator_deep",
@@ -30,63 +62,101 @@ VOICE_CATALOG: list[dict[str, Any]] = [
         "espeak_voice": "en-us+m3",
         "base_rate": 155,
         "base_pitch": 36,
-        "engine": "espeak-ng-local",
-        "license": "GPL-3.0-or-later (Synthetic Voice)",
+        "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
+        "piper_model": PIPER_EN_MALE_MODEL,
+        "license": "CC0-1.0 (Piper Joe dataset); GPL-3.0-or-later eSpeak fallback",
     },
     {
         "id": "en_male_heroic",
-        "name": "Tariq EN (Protagonist — Resolute Baritone)",
+        "name": "Tariq EN (Protagonist — Neural Male)",
         "language": "en",
         "gender": "male",
         "espeak_voice": "en+m1",
         "base_rate": 165,
         "base_pitch": 44,
-        "engine": "espeak-ng-local",
-        "license": "GPL-3.0-or-later (Synthetic Voice)",
+        "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
+        "piper_model": PIPER_EN_MALE_MODEL,
+        "license": "CC0-1.0 (Piper Joe dataset); GPL-3.0-or-later eSpeak fallback",
     },
     {
         "id": "en_male_deep",
-        "name": "Kael EN (Antagonist — Commanding Low)",
+        "name": "Kael EN (Antagonist — Neural Male, Slower)",
         "language": "en",
         "gender": "male",
         "espeak_voice": "en+m4",
         "base_rate": 152,
         "base_pitch": 30,
-        "engine": "espeak-ng-local",
-        "license": "GPL-3.0-or-later (Synthetic Voice)",
+        "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
+        "piper_model": PIPER_EN_MALE_MODEL,
+        "license": "CC0-1.0 (Piper Joe dataset); GPL-3.0-or-later eSpeak fallback",
     },
     {
         "id": "en_male_calm",
-        "name": "Idris EN (Advisor — Measured Tenor)",
+        "name": "Idris EN (Advisor — Neural Male, Measured)",
         "language": "en",
         "gender": "male",
         "espeak_voice": "en-gb+m2",
         "base_rate": 158,
         "base_pitch": 48,
-        "engine": "espeak-ng-local",
-        "license": "GPL-3.0-or-later (Synthetic Voice)",
+        "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
+        "piper_model": PIPER_EN_MALE_MODEL,
+        "license": "CC0-1.0 (Piper Joe dataset); GPL-3.0-or-later eSpeak fallback",
     },
     {
         "id": "en_female_warm",
-        "name": "Zara EN (Heroine — Warm Expressive)",
+        "name": "Zara EN (Heroine — Neural Female)",
         "language": "en",
         "gender": "female",
         "espeak_voice": "en-us+f3",
         "base_rate": 164,
         "base_pitch": 66,
-        "engine": "espeak-ng-local",
-        "license": "GPL-3.0-or-later (Synthetic Voice)",
+        "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
+        "piper_model": PIPER_EN_FEMALE_MODEL,
+        "license": "CC-BY-SA-4.0 (Piper Amy dataset); GPL-3.0-or-later eSpeak fallback",
     },
     {
         "id": "en_female_bright",
-        "name": "Noor EN (Scout — Clear Bright)",
+        "name": "Noor EN (Scout — Neural Female, Brisk)",
         "language": "en",
         "gender": "female",
         "espeak_voice": "en+f2",
         "base_rate": 170,
         "base_pitch": 72,
-        "engine": "espeak-ng-local",
-        "license": "GPL-3.0-or-later (Synthetic Voice)",
+        "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
+        "piper_model": PIPER_EN_FEMALE_MODEL,
+        "license": "CC-BY-SA-4.0 (Piper Amy dataset); GPL-3.0-or-later eSpeak fallback",
+    },
+    {
+        "id": "en_male_neural",
+        "name": "Bilal / Joe EN (Piper Neural — Natural Male)",
+        "language": "en",
+        "gender": "male",
+        "espeak_voice": "en+m1",
+        "base_rate": 165,
+        "base_pitch": 44,
+        "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
+        "piper_model": PIPER_EN_MALE_MODEL,
+        "license": "CC0-1.0 (Piper Joe dataset); GPL-3.0-or-later eSpeak fallback",
+    },
+    {
+        "id": "en_female_neural",
+        "name": "Zara / Amy EN (Piper Neural — Natural Female)",
+        "language": "en",
+        "gender": "female",
+        "espeak_voice": "en-us+f3",
+        "base_rate": 164,
+        "base_pitch": 66,
+        "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
+        "piper_model": PIPER_EN_FEMALE_MODEL,
+        "license": "CC-BY-SA-4.0 (Piper Amy dataset); GPL-3.0-or-later eSpeak fallback",
     },
     {
         "id": "ur_narrator_deep",
@@ -145,13 +215,14 @@ VOICE_CATALOG: list[dict[str, Any]] = [
     },
     {
         "id": "piper_neural_local",
-        "name": "Piper Local Neural Voice (Custom .onnx Slot)",
+        "name": "Piper Local Neural Voice (Auto .onnx Slot)",
         "language": "en",
         "gender": "neutral",
         "espeak_voice": "en-us+f3",
         "base_rate": 162,
         "base_pitch": 55,
         "engine": "piper-onnx-local",
+        "fallback_engine": "espeak-ng-local",
         "license": "Depends on user-installed ONNX voice checkpoint",
     },
 ]
@@ -160,9 +231,9 @@ LIPSYNC_CAPABILITY_MATRIX: list[dict[str, Any]] = [
     {
         "language": "English (en)",
         "tts_status": "implemented_offline",
-        "tts_engine": "eSpeak-NG + Optional Piper Neural ONNX",
+        "tts_engine": "Piper Neural ONNX (Joe male / Amy female) + eSpeak-NG fallback",
         "lipsync_mode": "Frame-accurate 3D jaw viseme envelope + head/brow emphasis",
-        "naturalness_note": "Built-in offline voice uses formant synthesis with DSP warmth filter; install a Piper .onnx voice in Model Manager for neural prosody.",
+        "naturalness_note": "English prefers the local Joe/Amy Piper ONNX voices in models_data/piper-onnx-custom-voice; eSpeak-NG remains an offline fallback if a model pair is missing.",
     },
     {
         "language": "Urdu Script (اردو / ur)",
@@ -240,45 +311,247 @@ def _get_espeak_lib() -> tuple[Any, int] | None:
         return None
 
 
-def _try_piper_onnx_synth(text: str, speed: float) -> tuple[np.ndarray, int] | None:
-    """Use PiperVoice ONNX neural model if the user installed one in models_data/piper-onnx-custom-voice."""
-    settings = get_settings()
-    slot_dir = settings.models_dir / "piper-onnx-custom-voice"
+def _piper_slot_dir() -> Path:
+    """Return the local directory containing Piper ``.onnx``/config pairs."""
+
+    override = (
+        os.getenv("SIDD_PIPER_VOICES_DIR", "").strip()
+        or os.getenv("SIDD_PIPER_MODEL_DIR", "").strip()
+    )
+    if override:
+        candidate = Path(override).expanduser()
+        if not candidate.is_absolute():
+            candidate = Path(__file__).resolve().parents[1] / candidate
+        return candidate.resolve()
+    return (get_settings().models_dir / PIPER_VOICE_SLOT_DIRNAME).resolve()
+
+
+def _piper_config_for(model_path: Path) -> Path | None:
+    candidates = (
+        Path(f"{model_path}.json"),
+        model_path.with_suffix(".json"),
+        model_path.parent / "config.json",
+    )
+    for candidate in candidates:
+        if candidate.is_file() and candidate.stat().st_size > 0:
+            return candidate
+    return None
+
+
+def _is_usable_piper_model(model_path: Path) -> bool:
+    """Reject missing files and Git-LFS pointer stubs masquerading as models."""
+
+    try:
+        if not model_path.is_file() or model_path.stat().st_size < 1_000_000:
+            return False
+        with model_path.open("rb") as fh:
+            prefix = fh.read(64)
+        return not prefix.startswith(b"version https://git-lfs.github.com/spec/v1")
+    except OSError:
+        return False
+
+
+def _resolve_piper_model_value(value: str, slot_dir: Path) -> Path | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = slot_dir / candidate
+    candidate = candidate.resolve()
+    if _is_usable_piper_model(candidate) and _piper_config_for(candidate):
+        return candidate
+    return None
+
+
+def _resolve_piper_voice_model(
+    voice_meta: dict[str, Any] | None = None,
+    *,
+    voice_id: str = "piper_neural_local",
+) -> tuple[Path, Path] | None:
+    """Resolve a usable local Piper model/config pair for a catalog voice.
+
+    English male voices prefer Joe and English female voices prefer Amy.
+    Explicit environment overrides win, followed by a catalog ``piper_model``
+    filename, ``male``/``female`` subdirectories, canonical Piper filenames,
+    and finally (for the generic slot voice) any usable model in the slot.
+    """
+
+    meta = dict(voice_meta or get_voice_meta(voice_id))
+    slot_dir = _piper_slot_dir()
     if not slot_dir.is_dir():
         return None
-    onnx_files = sorted(slot_dir.glob("*.onnx"))
-    if not onnx_files:
-        return None
-    model_path = onnx_files[0]
-    cfg_path = Path(f"{model_path}.json")
-    if not cfg_path.is_file():
-        alt = slot_dir / "config.json"
-        if alt.is_file():
-            cfg_path = alt
-        else:
-            return None
-    try:
-        from piper import PiperVoice, SynthesisConfig  # type: ignore
+
+    gender = str(meta.get("gender") or "neutral").lower()
+    ordered_values: list[str] = []
+
+    generic_override = os.getenv("SIDD_PIPER_MODEL_PATH", "").strip()
+    if generic_override:
+        ordered_values.append(generic_override)
+    if gender == "male":
+        ordered_values.append(os.getenv("SIDD_PIPER_EN_MALE_MODEL", "").strip())
+    elif gender == "female":
+        ordered_values.append(os.getenv("SIDD_PIPER_EN_FEMALE_MODEL", "").strip())
+
+    ordered_values.append(str(meta.get("piper_model") or ""))
+
+    for value in ordered_values:
+        resolved = _resolve_piper_model_value(value, slot_dir)
+        if resolved is not None:
+            cfg = _piper_config_for(resolved)
+            if cfg is not None:
+                return resolved, cfg
+
+    candidate_paths: list[Path] = []
+    if gender in {"male", "female"}:
+        gender_dir = slot_dir / gender
+        if gender_dir.is_dir():
+            candidate_paths.extend(sorted(gender_dir.glob("*.onnx")))
+        candidate_paths.extend(slot_dir / name for name in _PIPER_MODEL_CANDIDATES[gender])
+    else:
+        # The historical generic slot defaults to the male model, then any
+        # other usable pair.  Dedicated male/female catalog voices do not
+        # silently cross genders just because the other model is present.
+        candidate_paths.extend(slot_dir / name for name in _PIPER_MODEL_CANDIDATES["male"])
+        candidate_paths.extend(slot_dir / name for name in _PIPER_MODEL_CANDIDATES["female"])
+        candidate_paths.extend(sorted(slot_dir.glob("*.onnx")))
+        candidate_paths.extend(sorted(slot_dir.glob("*/*.onnx")))
+
+    seen: set[Path] = set()
+    for candidate in candidate_paths:
+        candidate = candidate.resolve()
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if not _is_usable_piper_model(candidate):
+            continue
+        cfg = _piper_config_for(candidate)
+        if cfg is not None:
+            return candidate, cfg
+    return None
+
+
+def get_piper_voice_status() -> dict[str, Any]:
+    """Describe the local English Piper voices currently usable by the API."""
+
+    slot_dir = _piper_slot_dir()
+    status: dict[str, Any] = {
+        "slot_dir": str(slot_dir),
+        "slot_exists": slot_dir.is_dir(),
+        "voices": {},
+    }
+    for label, voice_id in (
+        ("male", "en_male_neural"),
+        ("female", "en_female_neural"),
+    ):
+        resolved = _resolve_piper_voice_model(get_voice_meta(voice_id), voice_id=voice_id)
+        if resolved is None:
+            status["voices"][label] = {"available": False, "voice_id": voice_id}
+            continue
+        model_path, cfg_path = resolved
+        status["voices"][label] = {
+            "available": True,
+            "voice_id": voice_id,
+            "model": model_path.name,
+            "model_path": str(model_path),
+            "config_path": str(cfg_path),
+            "size_bytes": model_path.stat().st_size,
+        }
+    return status
+
+
+def _load_piper_voice(model_path: Path, cfg_path: Path) -> Any:
+    stat = model_path.stat()
+    key = (str(model_path), str(cfg_path), int(stat.st_size), int(stat.st_mtime_ns))
+    with _PIPER_LOCK:
+        cached = _PIPER_VOICE_CACHE.get(key)
+        if cached is not None:
+            return cached
+        from piper import PiperVoice  # type: ignore
 
         voice = PiperVoice.load(str(model_path), config_path=str(cfg_path))
-        syn_cfg = SynthesisConfig(length_scale=1.0 / max(0.5, min(2.0, speed)))
+        # Keep the cache intentionally tiny: the studio uses one male and
+        # one female English model in normal operation.
+        if len(_PIPER_VOICE_CACHE) >= 4:
+            _PIPER_VOICE_CACHE.clear()
+        _PIPER_VOICE_CACHE[key] = voice
+        return voice
+
+
+def _try_piper_onnx_synth(
+    text: str,
+    speed: float,
+    *,
+    voice_id: str = "piper_neural_local",
+    voice_meta: dict[str, Any] | None = None,
+    detected_lang: str = "en",
+) -> tuple[np.ndarray, int, dict[str, str]] | None:
+    """Synthesize English text with a local Piper ONNX voice, if installed."""
+
+    if detected_lang != "en":
+        return None
+
+    meta = dict(voice_meta or get_voice_meta(voice_id))
+    if str(meta.get("language") or "en") != "en":
+        return None
+
+    resolved = _resolve_piper_voice_model(meta, voice_id=voice_id)
+    if resolved is None:
+        return None
+    model_path, cfg_path = resolved
+
+    try:
+        from piper import SynthesisConfig  # type: ignore
+
+        # Catalog variants retain a little of their intended pacing even
+        # though the installed release has one base model per gender.
+        base_rate = float(meta.get("base_rate") or 165)
+        effective_speed = max(0.5, min(2.0, float(speed) * (base_rate / 165.0)))
+        syn_cfg = SynthesisConfig(length_scale=1.0 / effective_speed)
         chunks: list[np.ndarray] = []
         sr = 22050
-        for audio_chunk in voice.synthesize(text, syn_config=syn_cfg):
-            sr = audio_chunk.sample_rate
-            arr = np.frombuffer(audio_chunk.audio_int16_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-            chunks.append(arr)
+        with _PIPER_LOCK:
+            voice = _load_piper_voice(model_path, cfg_path)
+            for audio_chunk in voice.synthesize(text, syn_config=syn_cfg):
+                sr = int(audio_chunk.sample_rate)
+                arr = (
+                    np.frombuffer(audio_chunk.audio_int16_bytes, dtype=np.int16)
+                    .astype(np.float32)
+                    / 32768.0
+                )
+                if arr.size:
+                    chunks.append(arr)
         if chunks:
-            return (np.concatenate(chunks), sr)
+            return (
+                np.concatenate(chunks),
+                sr,
+                {
+                    "voice_model": model_path.name,
+                    "model_path": str(model_path),
+                    "model_config_path": str(cfg_path),
+                },
+            )
     except Exception:
         return None
     return None
 
 
-def _apply_voice_warmth_dsp(samples: np.ndarray, sr: int) -> np.ndarray:
-    """Apply gentle low-pass smoothing and subtle early reflection so formant speech sounds warm & cinematic."""
+def _apply_voice_warmth_dsp(
+    samples: np.ndarray,
+    sr: int,
+    *,
+    preserve_neural: bool = False,
+) -> np.ndarray:
+    """Warm formant speech while preserving the natural detail of Piper audio."""
     if samples.size < 64:
         return samples
+    if preserve_neural:
+        out = samples.astype(np.float32, copy=True)
+        out -= float(np.mean(out))
+        peak = float(np.max(np.abs(out))) or 1.0
+        if peak > 0.92:
+            out *= 0.92 / peak
+        return out.astype(np.float32)
     nyq = 0.5 * sr
     cutoff = min(0.92, 5800.0 / nyq)
     b, a = signal.butter(2, cutoff, btype="low")
@@ -375,11 +648,30 @@ def synthesize_speech_segment(
     raw_samples: np.ndarray | None = None
     raw_sr = TARGET_SAMPLE_RATE
     engine_used = "espeak-ng-local"
+    piper_meta: dict[str, str] = {}
 
-    if voice_id == "piper_neural_local":
-        piper_res = _try_piper_onnx_synth(clean_text, speed)
+    # English catalog voices now prefer the local gender-matched Piper ONNX
+    # model.  Urdu/Roman-Urdu remains on eSpeak because the installed Piper
+    # checkpoints are English (en_US) voices.
+    should_try_piper = (
+        detected_lang == "en"
+        and str(voice_meta.get("language") or "en") == "en"
+        and (
+            voice_id == "piper_neural_local"
+            or bool(voice_meta.get("piper_model"))
+            or str(voice_meta.get("engine") or "") == "piper-onnx-local"
+        )
+    )
+    if should_try_piper:
+        piper_res = _try_piper_onnx_synth(
+            clean_text,
+            speed,
+            voice_id=voice_id,
+            voice_meta=voice_meta,
+            detected_lang=detected_lang,
+        )
         if piper_res is not None:
-            raw_samples, raw_sr = piper_res
+            raw_samples, raw_sr, piper_meta = piper_res
             engine_used = "piper-onnx-local"
 
     if raw_samples is None:
@@ -420,6 +712,7 @@ def synthesize_speech_segment(
     if raw_samples is None or raw_samples.size == 0:
         # Pure DSP fallback vowel cadence if C library unavailable
         engine_used = "procedural-formant-fallback"
+        piper_meta = {}
         dur = max(0.8, min(8.0, len(clean_text.split()) * 0.36 / max(0.5, speed)))
         t = np.linspace(0, dur, int(TARGET_SAMPLE_RATE * dur), endpoint=False)
         f0 = (125.0 if voice_meta["gender"] == "male" else 210.0) * float(pitch)
@@ -435,7 +728,11 @@ def synthesize_speech_segment(
     else:
         resampled = raw_samples.astype(np.float32)
 
-    warmed = _apply_voice_warmth_dsp(resampled, TARGET_SAMPLE_RATE)
+    warmed = _apply_voice_warmth_dsp(
+        resampled,
+        TARGET_SAMPLE_RATE,
+        preserve_neural=engine_used == "piper-onnx-local",
+    )
     visemes = compute_viseme_envelope(warmed, TARGET_SAMPLE_RATE, video_fps=video_fps)
 
     if output_wav_path is not None:
@@ -449,6 +746,9 @@ def synthesize_speech_segment(
         "visemes": visemes,
         "engine_used": engine_used,
         "voice_id": voice_id,
+        "voice_model": piper_meta.get("voice_model", ""),
+        "model_path": piper_meta.get("model_path", ""),
+        "model_config_path": piper_meta.get("model_config_path", ""),
         "language": detected_lang,
         "normalized_text": normalized_text,
         "wav_path": str(output_wav_path) if output_wav_path else "",

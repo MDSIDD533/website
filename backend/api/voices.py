@@ -14,6 +14,7 @@ from voice_engine.sound_design import MUSIC_MOODS
 from voice_engine.tts import (
     LIPSYNC_CAPABILITY_MATRIX,
     VOICE_CATALOG,
+    get_piper_voice_status,
     synthesize_speech_segment,
 )
 
@@ -33,6 +34,7 @@ class VoicePreviewRequest(BaseModel):
 def api_list_voices() -> dict[str, Any]:
     return {
         "voices": VOICE_CATALOG,
+        "piper_voices": get_piper_voice_status(),
         "lipsync_capabilities": LIPSYNC_CAPABILITY_MATRIX,
         "music_moods": MUSIC_MOODS,
     }
@@ -70,6 +72,10 @@ def api_synthesize_voice_preview(req: VoicePreviewRequest) -> dict[str, Any]:
             "audio_url": f"/api/media/preview/previews/{filename}",
             "duration_sec": res["duration_sec"],
             "engine_used": res["engine_used"],
+            "voice_id": res.get("voice_id", req.voice_id),
+            "voice_model": res.get("voice_model", ""),
+            "model_path": res.get("model_path", ""),
+            "model_config_path": res.get("model_config_path", ""),
             "language": res["language"],
             "normalized_text": res["normalized_text"],
             "viseme_frame_count": len(res["visemes"]),

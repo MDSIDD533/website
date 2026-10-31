@@ -692,10 +692,10 @@ def _synthesize_speech_line(
 ) -> dict[str, Any]:
     """Synthesize one dialogue line with the existing fully local TTS stack.
 
-    ``voice_engine.tts`` uses a user-installed Piper ONNX voice when one is
-    present for the dedicated neural slot, and otherwise uses the eSpeak-NG
-    bridge/data bundled with the local ``piper-tts`` package.  No network or
-    hosted speech API is involved.
+    English dialogue prefers the gender-matched local Piper ONNX models
+    (Joe for male speakers such as Bilal, Amy for female speakers such as
+    Zara).  eSpeak-NG remains an honest offline fallback when a model pair
+    is unavailable.  No network or hosted speech API is involved.
     """
 
     from voice_engine.tts import synthesize_speech_segment
@@ -750,6 +750,7 @@ def build_dialogue_audio_timeline(
     all_lines: list[dict[str, Any]] = []
     lines_by_clip: dict[str, list[dict[str, Any]]] = {}
     engines: set[str] = set()
+    voice_models: set[str] = set()
     timeline_offset_sec = 0.0
 
     for clip in plan.clips:
@@ -802,6 +803,9 @@ def build_dialogue_audio_timeline(
 
             engine_used = str(result.get("engine_used") or "local-tts")
             engines.add(engine_used)
+            voice_model = str(result.get("voice_model") or "")
+            if voice_model:
+                voice_models.add(voice_model)
             line_meta: dict[str, Any] = {
                 "clip_id": clip.clip_id,
                 "scene_id": int(clip.scene_id),
@@ -810,6 +814,9 @@ def build_dialogue_audio_timeline(
                 "normalized_text": str(result.get("normalized_text") or text),
                 "voice_id": str(result.get("voice_id") or _speaker_voice_id(speaker, text)),
                 "engine_used": engine_used,
+                "voice_model": voice_model,
+                "model_path": str(result.get("model_path") or ""),
+                "model_config_path": str(result.get("model_config_path") or ""),
                 "wav_path": str(line_wav),
                 "start_sec": round(float(start_sec), 3),
                 "duration_sec": round(float(samples.size / sample_rate), 3)
@@ -825,9 +832,10 @@ def build_dialogue_audio_timeline(
             cursor_sec += (placed / float(sample_rate) if sample_rate else 0.0) + 0.25
 
             if on_log:
+                model_suffix = f" ({voice_model})" if voice_model else ""
                 on_log(
                     f"Generated local dialogue audio for {clip.clip_id}: "
-                    f"{speaker} via {engine_used} "
+                    f"{speaker} via {engine_used}{model_suffix} "
                     f"({line_meta['placed_duration_sec']}s at {line_meta['start_sec']}s)"
                 )
 
@@ -851,6 +859,7 @@ def build_dialogue_audio_timeline(
         "duration_sec": round(float(total_duration), 3),
         "line_count": len(all_lines),
         "engines": sorted(engines),
+        "voice_models": sorted(voice_models),
         "lines": all_lines,
         "clips": lines_by_clip,
     }
