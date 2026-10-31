@@ -86,6 +86,51 @@ def test_jungle_war_has_moody_captions_and_wins_over_generic_battlefield() -> No
     assert plan.to_dict()["total_frames"] == 900
 
 
+LAST_SURVIVOR_SCRIPT = """
+Title: The Last Survivor (Jungle War)
+HERO: Rain was falling over the broken ridge when my last radio went silent, and I knew that my entire unit was gone.
+HERO: I am the only soldier still standing in this drowned valley, yet every fallen brother marches beside me through the darkness.
+HERO: Beyond the black trees and flooded river, the enemy waits for hunger or fear to make me surrender.
+HERO: They can burn our road and bury our camp in mud, but they will never take the courage my brothers left in me.
+HERO: So I will rise before dawn, carry their names through this jungle, and walk out of this war alive.
+"""
+
+
+def test_last_survivor_extracts_hero_lines_and_forces_rear_camera() -> None:
+    plan = plan_blender_3d(
+        LAST_SURVIVOR_SCRIPT,
+        {
+            "duration_sec": 30,
+            "include_hero_voice": True,
+            "hero_voice_id": "en_male_heroic",
+            "voice_timing_mode": "target_duration",
+        },
+    )
+
+    assert plan.topic.theme == "last_survivor"
+    assert plan.topic.environment == "jungle_war"
+    assert "hero_focus_precedence_over_jungle_war" in plan.topic.reason_codes
+    assert plan.request.camera_move == "hero_tracking"
+    assert plan.request.include_hero_voice is True
+    assert plan.request.hero_voice_id == "en_male_heroic"
+    assert [line["speaker"] for line in plan.hero_dialogue] == ["Hero"] * 5
+    assert [line["text"] for line in plan.hero_dialogue] == [
+        "Rain was falling over the broken ridge when my last radio went silent, and I knew that my entire unit was gone.",
+        "I am the only soldier still standing in this drowned valley, yet every fallen brother marches beside me through the darkness.",
+        "Beyond the black trees and flooded river, the enemy waits for hunger or fear to make me surrender.",
+        "They can burn our road and bury our camp in mud, but they will never take the courage my brothers left in me.",
+        "So I will rise before dawn, carry their names through this jungle, and walk out of this war alive.",
+    ]
+    assert plan.captions == [
+        "THE LAST SURVIVOR (JUNGLE WAR)",
+        "ALONE IN THE RAIN",
+        "NO SURRENDER",
+        "CARRY THEIR NAMES",
+    ]
+    assert plan.to_dict()["total_frames"] == 450
+    assert plan.to_dict()["hero_dialogue"][0]["source"] == "script_label"
+
+
 def test_current_parser_shape_and_fort_default_do_not_crash() -> None:
     plan = plan_blender_3d("Bilal qile mein aata hai. Zara mash'al jalati hai.", {})
 
@@ -146,6 +191,9 @@ def test_turbo_is_the_saved_default_cpu_profile() -> None:
         {"width": 1919},
         {"duration_sec": 121},
         {"caption_lines": ["x" * 81]},
+        {"hero_voice_id": "en_female_neural"},
+        {"hero_voice_speed": 1.5},
+        {"voice_timing_mode": "stretch"},
     ],
 )
 def test_invalid_blender_requests_are_rejected(payload: dict) -> None:

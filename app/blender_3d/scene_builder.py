@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterable
 
 from .planner import Blender3DRequest, THEMES, quality_profile
 
-BUILDER_VERSION = "blender3d-scene-v2"
+BUILDER_VERSION = "blender3d-scene-v3"
 
 
 def _rgba(value: str, alpha: float = 1.0) -> tuple[float, float, float, float]:
@@ -492,12 +492,20 @@ class SceneFactory:
         # The f-stop is shallow enough to soften the far background without
         # making the miniature-scale action unreadable at one Turbo sample.
         _safe_set(camera_data.dof, "use_dof", True)
-        _safe_set(camera_data.dof, "aperture_fstop", float(fstop if fstop is not None else (2.8 if self.theme == "jungle_war" else 3.5)))
+        _safe_set(camera_data.dof, "aperture_fstop", float(fstop if fstop is not None else (2.2 if self.theme == "last_survivor" else (2.8 if self.theme == "jungle_war" else 3.5))))
         camera = bpy.data.objects.new("Blender3DCamera", camera_data)
         self.collection.objects.link(camera)
         camera.location = positions[0][1]
         camera["sidd_camera_move"] = self.request.camera_move
-        camera["sidd_camera_style"] = "smooth aerial drone path with Cycles depth of field" if self.request.camera_move == "drone" else self.request.camera_move
+        camera["sidd_camera_style"] = (
+            "smooth aerial drone path with Cycles depth of field"
+            if self.request.camera_move == "drone"
+            else (
+                "low rear tracking camera behind the silhouetted hero; face never shown"
+                if self.request.camera_move == "hero_tracking"
+                else self.request.camera_move
+            )
+        )
         constraint = camera.constraints.new(type="TRACK_TO")
         constraint.target = target
         constraint.track_axis = "TRACK_NEGATIVE_Z"
@@ -601,6 +609,142 @@ class SceneFactory:
                 loc[2] if end_z is None else end_z,
             )
             self.move(root, self.at(start_fraction), self.at(end_fraction), end, start_location=loc)
+        return root
+
+    def make_hero_soldier(
+        self,
+        name: str,
+        loc,
+        heading: float,
+        *,
+        scale: float = 1.28,
+        phase: float = 0.0,
+    ) -> Any:
+        """Build the protagonist as a rear-facing, rim-lit soldier silhouette.
+
+        The shape is intentionally broader and more layered than the generic
+        patrol figures: a wet poncho cone hides most rigid torso joins, while
+        a helmet, radio pack, bedroll, antenna and diagonally slung rifle make
+        the back view read immediately as a commander.  No facial geometry is
+        authored because the Last Survivor camera never moves in front of him.
+        """
+
+        uniform = self.mat("HeroWetUniform", "#111B12", roughness=0.94)
+        uniform_dark = self.mat("HeroUniformShadow", "#070B08", roughness=0.97)
+        pack_mat = self.mat("HeroBackpack", "#172217", roughness=0.92)
+        leather = self.mat("HeroWetLeather", "#17100C", roughness=0.88)
+        beacon_mat = self.mat(
+            "HeroRadioBeacon",
+            "#D93A2B",
+            roughness=0.7,
+            emission="#FF2A1E",
+            emission_strength=2.4,
+        )
+
+        root = self.empty(name, loc, (0, 0, heading))
+        root.scale = (scale, scale, scale)
+        root["sidd_role"] = "main_character_hero"
+        root["sidd_presentation"] = "back_view_rim_lit_silhouette_no_face"
+        body = self.empty(f"{name}_Body", (0, 0, 0), parent=root)
+
+        # Legs and boots.  The pivots remain simple, but the poncho and pack
+        # occupy most of the rear silhouette so the walk does not read as a
+        # jointed puppet in the final medium-wide tracking shot.
+        legs: list[Any] = []
+        arms: list[Any] = []
+        for side, sign in (("L", 1), ("R", -1)):
+            leg = self.empty(f"{name}_Leg{side}", (0, 0.17 * sign, 0.68), parent=body)
+            self.box(f"{name}_LegMesh{side}", (0, 0, -0.3), (0.17, 0.18, 0.62), uniform_dark, parent=leg)
+            self.box(f"{name}_Boot{side}", (0.07, 0, -0.62), (0.31, 0.17, 0.1), self.M["black"], parent=leg)
+            legs.append(leg)
+
+            arm = self.empty(f"{name}_Arm{side}", (0, 0.35 * sign, 1.27), parent=body)
+            self.box(f"{name}_ArmMesh{side}", (0.03, 0, -0.26), (0.15, 0.16, 0.54), uniform, parent=arm)
+            self.sphere(f"{name}_Glove{side}", (0.06, 0, -0.55), (0.14, 0.13, 0.14), leather, parent=arm)
+            arms.append(arm)
+
+        self.box(f"{name}_Torso", (0, 0, 1.02), (0.38, 0.56, 0.68), uniform, parent=body)
+        self.cone(f"{name}_RainPoncho", (0, 0, 1.02), (0.7, 0.84, 1.08), uniform_dark, parent=body)
+        cape = self.box(
+            f"{name}_PonchoBack",
+            (-0.36, 0, 0.68),
+            (0.06, 0.58, 0.62),
+            uniform_dark,
+            (0, math.radians(-5), 0),
+            body,
+        )
+        for sign in (-1, 1):
+            self.sphere(
+                f"{name}_Shoulder{sign}",
+                (0, 0.34 * sign, 1.3),
+                (0.27, 0.23, 0.22),
+                uniform,
+                parent=body,
+            )
+        self.box(f"{name}_Belt", (0, 0, 0.69), (0.46, 0.68, 0.11), leather, parent=body)
+        self.box(f"{name}_ChestStrap", (-0.25, 0, 1.08), (0.05, 0.68, 0.1), leather, (math.radians(24), 0, 0), body)
+
+        # Backpack, bedroll and radio details are placed on the camera side
+        # (-X in the character's local frame) because the camera stays behind.
+        self.box(f"{name}_Backpack", (-0.4, 0, 1.02), (0.22, 0.43, 0.54), pack_mat, parent=body)
+        self.box(f"{name}_BackpackFlap", (-0.52, 0, 1.24), (0.035, 0.36, 0.1), uniform, parent=body)
+        for strap_sign in (-1, 1):
+            self.box(
+                f"{name}_BackpackStrap{strap_sign}",
+                (-0.52, 0.11 * strap_sign, 1.01),
+                (0.03, 0.045, 0.48),
+                leather,
+                parent=body,
+            )
+        self.cylinder(
+            f"{name}_Bedroll",
+            (-0.39, 0, 1.36),
+            (0.2, 0.2, 0.52),
+            uniform,
+            (math.radians(90), 0, 0),
+            body,
+        )
+        self.box(f"{name}_Radio", (-0.46, 0.16, 0.78), (0.08, 0.19, 0.22), self.M["dark"], parent=body)
+        self.beam(f"{name}_Antenna", (-0.45, 0.2, 0.88), (-0.54, 0.25, 1.86), 0.018, self.M["dark"], body)
+        beacon = self.sphere(f"{name}_RadioBeacon", (-0.54, 0.25, 1.88), (0.04, 0.04, 0.04), beacon_mat, parent=body)
+        self.keys(
+            beacon,
+            "scale",
+            [
+                (0.0, (0.04, 0.04, 0.04)),
+                (0.42, (0.08, 0.08, 0.08)),
+                (0.84, (0.028, 0.028, 0.028)),
+            ],
+            "BEZIER",
+        )
+        self.set_cycles(beacon)
+
+        gun = self.empty(f"{name}_SlungRifle", (-0.47, 0, 1.05), (math.radians(-36), 0, 0), body)
+        self.box(f"{name}_RifleStock", (0, -0.3, 0), (0.07, 0.34, 0.1), leather, parent=gun)
+        self.box(f"{name}_RifleReceiver", (0, 0.01, 0), (0.075, 0.34, 0.085), self.M["dark"], parent=gun)
+        self.cylinder(
+            f"{name}_RifleBarrel",
+            (0, 0.4, 0.015),
+            (0.04, 0.04, 0.48),
+            self.M["black"],
+            (math.radians(90), 0, 0),
+            gun,
+        )
+
+        # The head is a dark helmet/hood mass only.  It remains turned away
+        # from the camera for the entire authored shot.
+        self.sphere(f"{name}_HeadShadow", (0, 0, 1.55), (0.25, 0.26, 0.28), uniform_dark, parent=body)
+        self.sphere(f"{name}_Helmet", (-0.02, 0, 1.64), (0.32, 0.35, 0.22), uniform, parent=body)
+        self.cylinder(f"{name}_HelmetBrim", (0, 0, 1.57), (0.46, 0.49, 0.055), uniform_dark, parent=body)
+        self.box(f"{name}_HelmetNeckFlap", (-0.15, 0, 1.5), (0.05, 0.33, 0.17), pack_mat, parent=body)
+
+        stride = 0.82
+        self.oscillate_rotation(legs[0], 1, 0.45, stride, phase)
+        self.oscillate_rotation(legs[1], 1, 0.45, stride, phase + math.pi)
+        self.oscillate_rotation(arms[0], 1, 0.25, stride, phase + math.pi)
+        self.oscillate_rotation(arms[1], 1, 0.25, stride, phase)
+        self.oscillate_location_z(body, 0.032, stride / 2, phase)
+        self.oscillate_rotation(cape, 1, 0.045, 1.35, phase + 0.4)
         return root
 
     def make_tank(self, name: str, loc, heading: float, *, scale: float = 1.0, move_distance: float = 16.0, start_fraction: float = 0.05, end_fraction: float = 0.9) -> Any:
@@ -1177,6 +1321,569 @@ class SceneFactory:
             points.append((self.at(fraction), (2 + 34 * math.cos(angle), 8 + 17 * math.sin(angle), 12 + 2 * math.sin(angle * 2))))
         self.keys(drone, "location", points)
         self._generic_camera((0, 7, 5))
+
+    def build_last_survivor(self) -> None:
+        """A hero-led rear-tracking shot through a rainy jungle battlefield.
+
+        Unlike the aerial Jungle War set, this scene is composed around one
+        protagonist at ground level.  The camera remains south/behind him for
+        every key, so the audience sees his helmet, poncho, backpack and
+        slung rifle as a dark rim-lit silhouette rather than a low-poly face.
+        The route itself tells the five-line story: wreck and dead radio,
+        memorials to the fallen unit, enemy fire near a burnt camp, then a
+        stream crossing toward a pale dawn beyond the ridge.
+        """
+
+        self.setup_world_and_lights(
+            world_strength=0.10,
+            sun_energy=0.85,
+            sun_rotation=(math.radians(62), math.radians(18), math.radians(-28)),
+            sun_color="#BFD4C3",
+            fill_energy=22.0,
+        )
+        self.setup_mist_compositor(color="#1E2E26", max_factor=0.5, start=9.0, depth=48.0)
+
+        canopy_dark = self.mat("SurvivorCanopyDark", "#0D2515", roughness=0.98)
+        canopy_mid = self.mat("SurvivorCanopyMid", "#1C4526", roughness=0.96)
+        canopy_wet = self.mat("SurvivorCanopyWet", "#2B5D34", roughness=0.9)
+        undergrowth = self.mat("SurvivorUndergrowth", "#142E1C", roughness=0.98)
+        fern = self.mat("SurvivorFern", "#214F2B", roughness=0.95)
+        bark = self.mat("SurvivorWetBark", "#2B1E15", roughness=0.97)
+        bamboo = self.mat("SurvivorBamboo", "#3C5731", roughness=0.9)
+        camo = self.mat("SurvivorCamo", "#2B4029", roughness=0.95)
+        camo_dark = self.mat("SurvivorCamoDark", "#1B2B20", roughness=0.97)
+        burnt_metal = self.mat("SurvivorBurntMetal", "#252A26", roughness=0.78, metallic=0.18)
+        tarp = self.mat("SurvivorWetTarp", "#2C4035", roughness=0.94)
+        rain_mat = self.mat(
+            "SurvivorRainStreaks",
+            "#B9CFDD",
+            roughness=1.0,
+            alpha=0.36,
+            emission="#8FAFC4",
+            emission_strength=0.24,
+        )
+        storm_mat = self.mat("SurvivorStormCloud", "#323D38", roughness=1.0, alpha=0.58)
+        dawn_mat = self.mat(
+            "SurvivorDawnGlow",
+            "#B9D1BC",
+            roughness=1.0,
+            alpha=0.5,
+            emission="#9FC3AA",
+            emission_strength=1.05,
+        )
+        flare_mat = self.mat(
+            "SurvivorSignalFlare",
+            "#FF4A32",
+            roughness=1.0,
+            emission="#FF2E1C",
+            emission_strength=4.2,
+        )
+
+        def trail_x(y: float) -> float:
+            return -10.0 + 0.18 * y + 4.0 * math.sin(y * 0.055)
+
+        def trail_dx_dy(y: float) -> float:
+            return 0.18 + 0.22 * math.cos(y * 0.055)
+
+        def stream_y(x: float) -> float:
+            return 20.0 + 2.2 * math.sin(x * 0.06)
+
+        craters = [(-16.0, -18.0), (-4.0, -2.0), (-18.0, 10.0), (4.0, 14.0)]
+
+        def ground_z(x: float, y: float) -> float:
+            z = 0.42 * math.sin(x * 0.05) * math.cos(y * 0.06) + 0.24 * math.sin((x - y) * 0.055)
+            trail_distance = abs(x - trail_x(y))
+            if trail_distance < 4.6:
+                z *= 0.22 + 0.14 * trail_distance
+            stream_distance = abs(y - stream_y(x))
+            if stream_distance < 4.8:
+                z -= 0.68 * (1.0 - stream_distance / 4.8)
+            if y > 28.0:
+                z += (y - 28.0) * 0.035
+            for cx, cy in craters:
+                distance = math.hypot(x - cx, y - cy)
+                if distance < 3.8:
+                    z -= 0.5 * (1.0 - distance / 3.8)
+            return z
+
+        def ground_color(x: float, y: float, z: float):
+            if abs(y - stream_y(x)) < 3.2:
+                return (0.03, 0.1, 0.115, 1)
+            if abs(x - trail_x(y)) < 2.9:
+                return (0.16, 0.1, 0.048, 1)
+            for cx, cy in craters:
+                if math.hypot(x - cx, y - cy) < 3.5:
+                    return (0.06, 0.046, 0.03, 1)
+            variation = 0.016 * math.sin(x * 0.44 + y * 0.32)
+            return (0.034 + variation, 0.104 + variation, 0.043, 1)
+
+        self.grid_terrain(
+            "LastSurvivorTerrain",
+            x_range=(-105, 105),
+            y_range=(-78, 78),
+            nx=58,
+            ny=40,
+            height_fn=ground_z,
+            color_fn=ground_color,
+            material=self.vertex_material("LastSurvivorVertex", roughness=0.98),
+        )
+        self.box(
+            "LastSurvivorHorizonGround",
+            (0, 0, -1.8),
+            (560, 560, 0.2),
+            self.mat("LastSurvivorHorizon", "#0B1B11", roughness=1.0),
+        )
+
+        stream_mat = self.mat("LastSurvivorStream", "#17332F", roughness=0.22, metallic=0.04)
+        for index, x in enumerate(range(-58, 64, 9)):
+            y = stream_y(float(x))
+            angle = math.atan(0.132 * math.cos(x * 0.06))
+            self.box(
+                f"SurvivorStreamSegment{index}",
+                (x, y, ground_z(float(x), y) + 0.12),
+                (9.4, 4.9, 0.08),
+                stream_mat,
+                (0, 0, angle),
+            )
+        bridge_x = trail_x(20.0)
+        self.beam(
+            "SurvivorLogBridge",
+            (bridge_x - 0.5, 14.6, ground_z(bridge_x, 14.6) + 0.48),
+            (bridge_x + 0.4, 26.2, ground_z(bridge_x, 26.2) + 0.52),
+            0.68,
+            bark,
+        )
+
+        # Pale dawn and black ridge silhouettes close the low camera's view.
+        self.sphere("DawnBeyondRidge", (trail_x(58.0), 58, 12.0), (28, 7, 7), dawn_mat)
+        for index, (x, y, width, height) in enumerate(
+            ((-62, 58, 30, 13), (-28, 61, 34, 15), (8, 60, 36, 13), (44, 62, 32, 16), (74, 58, 27, 12))
+        ):
+            self.cone(
+                f"SurvivorRidge{index}",
+                (x, y, ground_z(float(x), float(y)) + height * 0.34),
+                (width, width * 0.58, height),
+                canopy_dark,
+            )
+        for index in range(16):
+            x = -76 + index * 10.2 + self.rng.uniform(-2.0, 2.0)
+            y = 48 + self.rng.uniform(-3.0, 6.0)
+            self.sphere(
+                f"SurvivorDistantCanopy{index}",
+                (x, y, ground_z(x, y) + self.rng.uniform(4.0, 7.0)),
+                (self.rng.uniform(9, 15), self.rng.uniform(6, 10), self.rng.uniform(4.5, 7)),
+                canopy_dark if index % 3 else canopy_mid,
+            )
+        for index, (x, y, z, scale) in enumerate(((-46, 48, 24, 6), (2, 56, 28, 8), (48, 50, 25, 6))):
+            cloud = self.empty(f"SurvivorStormCloud{index}", (x, y, z))
+            cloud.scale = (scale, scale, scale)
+            for puff_index, offset in enumerate(((-1.05, 0, 0), (0, 0.12, 0.16), (1.05, -0.08, 0))):
+                self.sphere(
+                    f"SurvivorStormPuff{index}_{puff_index}",
+                    offset,
+                    (1.65, 0.82, 0.52),
+                    storm_mat,
+                    parent=cloud,
+                )
+            self.move(cloud, 0, self.duration, (x + 5 + index, y, z), start_location=(x, y, z), interpolation="LINEAR")
+
+        # Front rim light: positioned far along the hero's route so it edges
+        # his helmet/shoulders without illuminating a face toward camera.
+        self.point_light("DawnRimLight", (trail_x(40.0), 40, 6.0), "#B9D4C3", 1100)
+        self.point_light("ColdSideRimLight", (trail_x(2.0) + 10, 4, 4.2), "#7FA9C9", 150)
+
+        tree_pairs = [(canopy_dark, canopy_mid), (canopy_mid, canopy_wet), (undergrowth, canopy_mid)]
+        tree_positions: list[tuple[float, float, float]] = []
+        attempts = 0
+        while len(tree_positions) < 44 and attempts < 420:
+            attempts += 1
+            x = self.rng.uniform(-66, 66)
+            y = self.rng.uniform(-54, 52)
+            if abs(x - trail_x(y)) < 5.4 or abs(y - stream_y(x)) < 4.0:
+                continue
+            tree_positions.append((x, y, self.rng.uniform(1.55, 2.9)))
+        foreground_trees = [
+            (trail_x(-22.0) - 8.0, -22.0, 2.8),
+            (trail_x(-13.0) + 8.5, -13.0, 2.65),
+            (trail_x(-3.0) - 8.5, -3.0, 2.95),
+            (trail_x(7.0) + 8.0, 7.0, 2.7),
+            (trail_x(16.0) - 8.5, 16.0, 2.8),
+            (trail_x(27.0) + 9.0, 27.0, 2.6),
+        ]
+        tree_positions.extend(foreground_trees)
+        for index, (x, y, scale) in enumerate(tree_positions):
+            crown, crown_light = tree_pairs[index % len(tree_pairs)]
+            self.make_tree(
+                f"SurvivorTree{index}",
+                (x, y, ground_z(x, y) - 0.08),
+                scale=scale,
+                palm=(index % 8 == 4),
+                trunk_material=bark,
+                crown_material=crown,
+                crown_material_light=crown_light,
+            )
+
+        for index in range(48):
+            x = self.rng.uniform(-62, 62)
+            y = self.rng.uniform(-52, 50)
+            if abs(x - trail_x(y)) < 3.2:
+                x += 4.2 if x >= trail_x(y) else -4.2
+            self.sphere(
+                f"SurvivorBush{index}",
+                (x, y, ground_z(x, y) + 0.3),
+                (self.rng.uniform(1.0, 2.6), self.rng.uniform(0.85, 2.0), self.rng.uniform(0.5, 1.05)),
+                undergrowth if index % 3 else canopy_mid,
+            )
+        for index in range(26):
+            x = self.rng.uniform(-55, 55)
+            y = self.rng.uniform(-48, 46)
+            if abs(x - trail_x(y)) < 3.0:
+                continue
+            self.cone(f"SurvivorFern{index}", (x, y, ground_z(x, y) + 0.32), (1.05, 1.05, 0.75), fern)
+        for cluster in range(5):
+            cy = -34 + cluster * 15 + self.rng.uniform(-3, 3)
+            cx = trail_x(cy) + (9 if cluster % 2 else -9)
+            for stalk in range(4):
+                x = cx + self.rng.uniform(-0.8, 0.8)
+                y = cy + self.rng.uniform(-0.8, 0.8)
+                height = self.rng.uniform(4.2, 6.8)
+                self.cylinder(
+                    f"SurvivorBamboo{cluster}_{stalk}",
+                    (x, y, ground_z(x, y) + height / 2),
+                    (0.17, 0.17, height),
+                    bamboo,
+                    (math.radians(self.rng.uniform(-3, 3)), math.radians(self.rng.uniform(-3, 3)), 0),
+                )
+        vine_mat = self.mat("SurvivorVine", "#182E20", roughness=0.98)
+        for index, (x, y, scale) in enumerate(tree_positions[:15]):
+            top = (x + self.rng.uniform(-1.0, 1.0), y + self.rng.uniform(-0.8, 0.8), ground_z(x, y) + 2.1 * scale)
+            bottom = (top[0] + self.rng.uniform(-0.4, 0.4), top[1], ground_z(x, y) + 0.25)
+            self.beam(f"SurvivorVine{index}", top, bottom, 0.05, vine_mat)
+        for index in range(8):
+            y = -42 + index * 10 + self.rng.uniform(-2, 2)
+            x = trail_x(y) + (7 if index % 2 else -7)
+            end = (x + self.rng.uniform(-2, 2), y + 4.5)
+            self.beam(
+                f"SurvivorFallenLog{index}",
+                (x, y, ground_z(x, y) + 0.3),
+                (end[0], end[1], ground_z(end[0], end[1]) + 0.3),
+                0.52,
+                bark,
+            )
+        for index in range(14):
+            x = self.rng.uniform(-55, 55)
+            y = self.rng.uniform(-50, 48)
+            if abs(x - trail_x(y)) < 3.4:
+                continue
+            self.box(
+                f"SurvivorRock{index}",
+                (x, y, ground_z(x, y) + 0.2),
+                (self.rng.uniform(0.7, 1.7), self.rng.uniform(0.6, 1.3), self.rng.uniform(0.35, 0.75)),
+                self.M["stone"],
+                (0, 0, self.rng.uniform(0, math.tau)),
+            )
+        for index, y in enumerate((-31, -24, -17, -10, -3, 4, 11, 17, 27)):
+            x = trail_x(float(y)) + self.rng.uniform(-0.7, 0.7)
+            self.cylinder(
+                f"SurvivorTrailPuddle{index}",
+                (x, y, ground_z(x, float(y)) + 0.06),
+                (self.rng.uniform(2.0, 3.2), self.rng.uniform(1.0, 1.7), 0.04),
+                stream_mat,
+            )
+
+        # Opening beat: burnt truck and broken radio beside the route.
+        wreck_y = -23.0
+        wreck_x = trail_x(wreck_y) - 6.4
+        wreck_z = ground_z(wreck_x, wreck_y)
+        wreck = self.empty("SurvivorBurntTruck", (wreck_x, wreck_y, wreck_z + 0.2), (math.radians(4), 0, math.radians(74)))
+        self.box("SurvivorWreckCab", (1.8, 0, 0.95), (1.6, 1.75, 1.3), burnt_metal, parent=wreck)
+        self.box("SurvivorWreckWindshield", (2.55, 0, 1.22), (0.08, 1.3, 0.55), self.M["black"], parent=wreck)
+        self.box("SurvivorWreckBed", (-0.95, 0, 1.0), (3.7, 2.0, 1.2), camo_dark, parent=wreck)
+        self.box("SurvivorWreckCanvas", (-1.0, 0, 1.72), (3.1, 1.75, 0.38), self.M["black"], (0, math.radians(-4), 0), wreck)
+        for wheel_index, (wx, wy) in enumerate(((-1.9, -1.05), (-1.9, 1.05), (1.7, -1.05), (1.7, 1.05))):
+            self.cylinder(f"SurvivorWreckWheel{wheel_index}", (wx, wy, 0.36), (0.72, 0.2, 0.72), self.M["black"], (math.radians(90), 0, 0), wreck)
+        self.sphere("SurvivorWreckFire", (wreck_x + 0.4, wreck_y + 0.5, wreck_z + 1.35), (0.65, 0.55, 0.55), self.M["fire"])
+        self.cone("SurvivorWreckFlame", (wreck_x + 0.4, wreck_y + 0.5, wreck_z + 1.95), (0.42, 0.42, 1.05), self.M["flash"])
+        self.make_smoke_column("SurvivorWreckSmoke", (wreck_x, wreck_y, wreck_z + 2.0), count=5, height=6.5)
+        self.point_light("SurvivorWreckFireLight", (wreck_x + 0.5, wreck_y + 0.5, wreck_z + 1.8), "#FF7A2E", 220)
+
+        radio_y = -20.0
+        radio_x = trail_x(radio_y) + 2.9
+        radio_z = ground_z(radio_x, radio_y)
+        radio = self.empty("BrokenFieldRadio", (radio_x, radio_y, radio_z + 0.25), (0, math.radians(-8), math.radians(18)))
+        self.box("BrokenRadioBody", (0, 0, 0.22), (0.78, 0.58, 0.44), burnt_metal, parent=radio)
+        self.box("BrokenRadioDial", (-0.41, 0, 0.28), (0.04, 0.34, 0.2), self.M["flash"], parent=radio)
+        self.beam("BrokenRadioAntennaA", (radio_x - 0.2, radio_y + 0.15, radio_z + 0.5), (radio_x - 0.45, radio_y + 0.3, radio_z + 1.55), 0.025, self.M["dark"])
+        self.beam("BrokenRadioAntennaB", (radio_x - 0.45, radio_y + 0.3, radio_z + 1.55), (radio_x - 0.05, radio_y + 0.55, radio_z + 1.15), 0.02, self.M["dark"])
+
+        # Second beat: three battlefield memorials for the fallen unit.  They
+        # sit on the hero's right, where the rear camera can read them without
+        # another character competing with the protagonist.
+        for index, memorial_y in enumerate((-13.0, -8.0, -3.0)):
+            mx = trail_x(memorial_y) + 4.4 + (index % 2) * 0.55
+            mz = ground_z(mx, memorial_y)
+            self.beam(
+                f"FallenMemorialRifle{index}",
+                (mx, memorial_y, mz + 0.05),
+                (mx - 0.18, memorial_y, mz + 1.25),
+                0.055,
+                self.M["dark"],
+            )
+            self.sphere(f"FallenMemorialHelmet{index}", (mx - 0.2, memorial_y, mz + 1.32), (0.34, 0.36, 0.22), camo)
+            self.box(f"FallenMemorialCross{index}", (mx + 0.12, memorial_y, mz + 0.82), (0.07, 0.52, 0.08), bark)
+            self.box(f"FallenMemorialTag{index}", (mx - 0.27, memorial_y - 0.12, mz + 0.92), (0.035, 0.15, 0.2), self.M["gold"])
+            self.cylinder(f"FallenMemorialMound{index}", (mx, memorial_y, mz + 0.08), (1.15, 0.72, 0.12), self.mat("FreshGraveMud", "#2A1C11", roughness=1.0))
+
+        # Fourth beat: a burnt survival camp and defensive sandbags near the
+        # contact zone, warmed by one surviving lantern.
+        camp_y = 9.0
+        camp_x = trail_x(camp_y) - 8.2
+        camp_z = ground_z(camp_x, camp_y)
+        camp = self.empty("SurvivorBurntCamp", (camp_x, camp_y, camp_z), (0, 0, math.radians(-14)))
+        for index, (px, py) in enumerate(((-2.2, -1.5), (2.2, -1.5), (-2.2, 1.5), (2.2, 1.5))):
+            self.cylinder(f"SurvivorCampPole{index}", (px, py, 1.05), (0.1, 0.1, 2.1), bark, parent=camp)
+        self.box("SurvivorCampTarp", (0, 0, 2.25), (5.2, 3.8, 0.11), tarp, (math.radians(5), math.radians(-5), 0), camp)
+        for index, (px, py, pz) in enumerate(((-1.3, -0.6, 0.32), (-0.35, -0.6, 0.32), (-0.85, -0.6, 0.9), (1.2, 0.7, 0.3))):
+            self.box(f"SurvivorCampCrate{index}", (px, py, pz), (0.82, 0.68, 0.56), self.M["wood"] if index < 3 else camo, parent=camp)
+        lantern = self.sphere("SurvivorCampLantern", (1.65, -1.05, 0.58), (0.26, 0.26, 0.32), self.M["flash"], parent=camp)
+        self.oscillate_rotation(lantern, 2, 0.05, 1.6)
+        self.point_light("SurvivorCampLanternLight", (1.65, -1.05, 0.68), "#FFB45E", 110, camp)
+        self.make_smoke_column("SurvivorCampSmoke", (camp_x - 1.0, camp_y + 0.5, camp_z + 1.8), count=4, height=5.2)
+
+        sandbag_y = 13.0
+        sandbag_x = trail_x(sandbag_y) + 7.4
+        sandbag_z = ground_z(sandbag_x, sandbag_y)
+        for index in range(10):
+            angle = math.radians(-70 + index * 15)
+            self.sphere(
+                f"SurvivorSandbag{index}",
+                (sandbag_x + 2.0 * math.cos(angle), sandbag_y + 2.0 * math.sin(angle), sandbag_z + 0.27 + (index % 2) * 0.28),
+                (0.68, 0.43, 0.3),
+                self.M["sand"],
+                (0, 0, angle),
+            )
+        wire_mat = self.mat("SurvivorTripWire", "#69706B", roughness=0.5, metallic=0.55)
+        wire_y = 4.5
+        self.beam(
+            "SurvivorTripWire",
+            (trail_x(wire_y) - 3.2, wire_y, ground_z(trail_x(wire_y) - 3.2, wire_y) + 0.28),
+            (trail_x(wire_y) + 3.2, wire_y, ground_z(trail_x(wire_y) + 3.2, wire_y) + 0.28),
+            0.024,
+            wire_mat,
+        )
+
+        # Rain concentrated along the hero corridor, where the close camera
+        # can actually see it passing through the rim light.
+        for group in range(3):
+            rain_root = self.empty(f"SurvivorRainSheet{group}", (0, 0, 0), (math.radians(9), 0, math.radians(-4)))
+            for streak in range(26):
+                y = self.rng.uniform(-38, 36)
+                x = trail_x(y) + self.rng.uniform(-16, 16)
+                self.cylinder(
+                    f"SurvivorRainStreak{group}_{streak}",
+                    (x, y, self.rng.uniform(0.4, 10.5)),
+                    (0.033, 0.033, self.rng.uniform(1.35, 2.15)),
+                    rain_mat,
+                    parent=rain_root,
+                )
+            phase = group * 0.21
+            self.keys(
+                rain_root,
+                "location",
+                [(phase, (0, 0, 0)), (phase + 0.78, (1.4, 0, -10.0))],
+                "LINEAR",
+            )
+            self.set_cycles(rain_root)
+
+        # Distant contact timed broadly to the middle spoken lines.  All
+        # flashes stay ahead/side of the hero; he continues walking through.
+        def burst(name: str, loc, start_fraction: float, scale: float = 1.0) -> None:
+            parts = [
+                self.sphere(f"{name}Core", (loc[0], loc[1], loc[2] + 0.5), (0.08, 0.08, 0.08), self.M["fire"]),
+                self.cone(f"{name}Flame", (loc[0], loc[1], loc[2] + 0.9), (0.08, 0.08, 0.08), self.M["flash"]),
+                self.sphere(f"{name}Smoke", (loc[0] + 0.2, loc[1], loc[2] + 1.25), (0.08, 0.08, 0.08), self.M["smoke_light"]),
+            ]
+            targets = [
+                (1.35 * scale, 1.35 * scale, 1.05 * scale),
+                (0.68 * scale, 0.68 * scale, 1.65 * scale),
+                (1.55 * scale, 1.55 * scale, 1.2 * scale),
+            ]
+            for part, target in zip(parts, targets):
+                self.keys(
+                    part,
+                    "scale",
+                    [
+                        (0.0, (0.08, 0.08, 0.08)),
+                        (self.at(start_fraction), (0.08, 0.08, 0.08)),
+                        (self.at(min(1.0, start_fraction + 0.008)), target),
+                        (self.at(min(1.0, start_fraction + 0.03)), tuple(value * 0.34 for value in target)),
+                        (self.at(min(1.0, start_fraction + 0.055)), (0.08, 0.08, 0.08)),
+                        (self.duration, (0.08, 0.08, 0.08)),
+                    ],
+                )
+
+        burst("SurvivorDistantBlast", (camp_x + 1.0, camp_y + 4.0, camp_z), 0.67, 0.95)
+        for index, (side, flash_y) in enumerate(((-1, 12.0), (1, 14.0), (-1, 16.0), (1, 18.0))):
+            flash_x = trail_x(flash_y) + side * 8.5
+            flash_z = ground_z(flash_x, flash_y) + 1.25
+            flash = self.cone(
+                f"SurvivorMuzzleFlash{index}",
+                (flash_x, flash_y, flash_z),
+                (0.07, 0.07, 0.07),
+                self.M["flash"],
+                (0, math.radians(-90 if side < 0 else 90), 0),
+            )
+            pairs: list[tuple[float, tuple[float, float, float]]] = [(0.0, (0.07, 0.07, 0.07))]
+            for pulse in range(4):
+                start = 0.48 + index * 0.018 + pulse * 0.045
+                pairs.extend(
+                    [
+                        (self.at(start), (0.07, 0.07, 0.07)),
+                        (self.at(start + 0.004), (0.52, 0.52, 0.95)),
+                        (self.at(start + 0.013), (0.07, 0.07, 0.07)),
+                    ]
+                )
+            pairs.append((self.duration, (0.07, 0.07, 0.07)))
+            self.keys(flash, "scale", pairs, "BEZIER")
+
+        for index in range(3):
+            tracer_y = 11.0 + index * 2.4
+            start_x = trail_x(tracer_y) - 8.0
+            end_x = trail_x(tracer_y) + 8.0
+            tracer_z = ground_z(start_x, tracer_y) + 3.4 + index * 0.35
+            tracer = self.sphere(f"SurvivorTracer{index}", (start_x, tracer_y, tracer_z), (0.02, 0.02, 0.02), flare_mat)
+            self.keys(
+                tracer,
+                "scale",
+                [
+                    (0.0, (0.02, 0.02, 0.02)),
+                    (self.at(0.5), (0.02, 0.02, 0.02)),
+                    (self.at(0.506), (1.15, 0.05, 0.05)),
+                    (self.at(0.69), (1.15, 0.05, 0.05)),
+                    (self.at(0.696), (0.02, 0.02, 0.02)),
+                    (self.duration, (0.02, 0.02, 0.02)),
+                ],
+            )
+            delay = index * 0.012
+            self.keys(
+                tracer,
+                "location",
+                [
+                    (self.at(0.506 + delay), (start_x, tracer_y, tracer_z)),
+                    (self.at(0.54 + delay), (end_x, tracer_y + 0.3, tracer_z - 0.15)),
+                    (self.at(0.544 + delay), (start_x, tracer_y, tracer_z)),
+                    (self.at(0.61 + delay), (start_x, tracer_y, tracer_z)),
+                    (self.at(0.644 + delay), (end_x, tracer_y + 0.3, tracer_z - 0.15)),
+                    (self.at(0.69), (start_x, tracer_y, tracer_z)),
+                ],
+                "LINEAR",
+            )
+
+        flare_start = (trail_x(26.0) + 5.0, 26.0, ground_z(trail_x(26.0) + 5.0, 26.0) + 1.0)
+        flare = self.sphere("EnemySignalFlare", flare_start, (0.04, 0.04, 0.04), flare_mat)
+        self.keys(
+            flare,
+            "location",
+            [
+                (self.at(0.38), flare_start),
+                (self.at(0.49), (flare_start[0] - 2.0, flare_start[1] + 3.0, flare_start[2] + 10.5)),
+                (self.at(0.6), (flare_start[0] - 3.0, flare_start[1] + 4.0, flare_start[2] + 7.0)),
+            ],
+            "BEZIER",
+        )
+        self.keys(
+            flare,
+            "scale",
+            [
+                (0.0, (0.04, 0.04, 0.04)),
+                (self.at(0.38), (0.04, 0.04, 0.04)),
+                (self.at(0.405), (0.42, 0.42, 0.42)),
+                (self.at(0.57), (0.34, 0.34, 0.34)),
+                (self.at(0.605), (0.04, 0.04, 0.04)),
+                (self.duration, (0.04, 0.04, 0.04)),
+            ],
+        )
+        for index in range(5):
+            start = (trail_x(8.0) - 4 + index * 1.8, 8 + (index % 2) * 1.6, 6.5 + index * 0.3)
+            bird = self.cone(f"SurvivorBird{index}", start, (0.85, 0.25, 0.22), self.M["black"], (0, math.radians(-90), 0))
+            end = (start[0] + 28 + index * 2, start[1] + 12, start[2] + 7)
+            self.keys(bird, "location", [(self.at(0.47), start), (self.at(0.6), end)], "BEZIER")
+
+        # The one continuous hero path and its locked rear camera.  Every
+        # camera key is behind the corresponding hero key along -Y (the route
+        # runs generally north), with only a small lateral shoulder offset.
+        fractions = (0.0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 0.92, 1.0)
+        hero_ys = (-27.0, -20.0, -14.0, -7.0, 0.0, 7.0, 14.0, 19.0, 24.0)
+        hero_offsets = (-0.3, 0.2, -0.2, 0.35, -0.25, 0.2, -0.1, 0.0, 0.0)
+        hero_locations: list[tuple[float, float, float]] = []
+        hero_headings: list[float] = []
+        for y, offset in zip(hero_ys, hero_offsets):
+            x = trail_x(y) + offset
+            bridge_lift = 0.5 if y >= 19.0 else 0.0
+            hero_locations.append((x, y, ground_z(x, y) + bridge_lift))
+            hero_headings.append(math.atan2(1.0, trail_dx_dy(y)))
+        hero_scale = 1.08
+        hero = self.make_hero_soldier("LastSurvivorHero", hero_locations[0], hero_headings[0], scale=hero_scale)
+        self.keys(
+            hero,
+            "location",
+            [(self.at(fraction), location) for fraction, location in zip(fractions, hero_locations)],
+            "BEZIER",
+        )
+        self.keys(
+            hero,
+            "rotation_euler",
+            [(self.at(fraction), (0, 0, heading)) for fraction, heading in zip(fractions, hero_headings)],
+            "BEZIER",
+        )
+        # A brief duck under the distant fire, achieved by lowering only the
+        # vertical scale; his feet remain planted on the route.
+        self.keys(
+            hero,
+            "scale",
+            [
+                (self.at(0.46), (hero_scale, hero_scale, hero_scale)),
+                (self.at(0.52), (hero_scale, hero_scale, hero_scale * 0.86)),
+                (self.at(0.59), (hero_scale, hero_scale, hero_scale)),
+                (self.duration, (hero_scale, hero_scale, hero_scale)),
+            ],
+            "BEZIER",
+        )
+
+        camera_offsets = (-1.2, -0.9, 0.75, 1.0, -0.9, -0.65, 0.65, 0.25, 0.0)
+        camera_distances = (7.8, 7.2, 6.9, 7.2, 7.6, 8.2, 8.8, 9.3, 10.2)
+        camera_heights = (2.1, 1.95, 1.9, 2.0, 2.1, 2.3, 2.55, 2.65, 2.75)
+        camera_positions: list[tuple[float, tuple[float, float, float]]] = []
+        camera_targets: list[tuple[float, tuple[float, float, float]]] = []
+        focus_pairs: list[tuple[float, float]] = []
+        for fraction, hero_loc, y, offset, distance, height in zip(
+            fractions,
+            hero_locations,
+            hero_ys,
+            camera_offsets,
+            camera_distances,
+            camera_heights,
+        ):
+            cam_x = hero_loc[0] + offset
+            cam_y = hero_loc[1] - distance
+            cam_pos = (cam_x, cam_y, ground_z(cam_x, cam_y) + height)
+            forward_x = trail_dx_dy(y)
+            forward_len = math.hypot(forward_x, 1.0)
+            target = (
+                hero_loc[0] + (forward_x / forward_len) * 1.7,
+                hero_loc[1] + (1.0 / forward_len) * 1.7,
+                hero_loc[2] + 1.42,
+            )
+            camera_positions.append((fraction, cam_pos))
+            camera_targets.append((fraction, target))
+            focus_pairs.append((fraction, max(2.5, math.dist(cam_pos, hero_loc) * 0.96)))
+        self.setup_camera(
+            camera_positions,
+            camera_targets,
+            [(0.0, 46), (0.28, 49), (0.56, 47), (0.84, 45), (1.0, 43)],
+            focus_pairs=focus_pairs,
+            fstop=2.2,
+        )
 
     def build_jungle_war(self) -> None:
         """Dark aerial rainforest ambush built for the Turbo profile.
@@ -1896,17 +2603,18 @@ class SceneFactory:
         _safe_set(scene.render, "simplify_subdivision_render", 0)
         _safe_set(scene.display_settings, "display_device", "sRGB")
         _safe_set(scene.view_settings, "view_transform", "Filmic")
-        _safe_set(scene.view_settings, "look", "High Contrast" if self.theme == "jungle_war" else "Medium Contrast")
-        if self.theme == "jungle_war":
-            # Filmic -0.24 EV plus the dark palette and Mist-pass compositor
-            # supplies the requested moody grade while keeping soldiers and
-            # the muddy trail readable.
-            _safe_set(scene.view_settings, "exposure", -0.24)
-            _safe_set(scene.view_settings, "gamma", 0.96)
+        _safe_set(scene.view_settings, "look", "High Contrast" if self.theme in {"jungle_war", "last_survivor"} else "Medium Contrast")
+        if self.theme in {"jungle_war", "last_survivor"}:
+            # Filmic negative exposure plus the dark palette and Mist-pass
+            # compositor supplies the requested moody grade.  The survivor
+            # camera is much closer to its subject, so its mist begins sooner
+            # and turns the route ahead into layered silhouettes.
+            _safe_set(scene.view_settings, "exposure", -0.38 if self.theme == "last_survivor" else -0.24)
+            _safe_set(scene.view_settings, "gamma", 0.97 if self.theme == "last_survivor" else 0.96)
             if scene.world:
                 _safe_set(scene.world.mist_settings, "use_mist", True)
-                _safe_set(scene.world.mist_settings, "start", 32.0)
-                _safe_set(scene.world.mist_settings, "depth", 95.0)
+                _safe_set(scene.world.mist_settings, "start", 9.0 if self.theme == "last_survivor" else 32.0)
+                _safe_set(scene.world.mist_settings, "depth", 48.0 if self.theme == "last_survivor" else 95.0)
                 _safe_set(scene.world.mist_settings, "falloff", "QUADRATIC")
         else:
             _safe_set(scene.view_settings, "exposure", 0.08 if self.theme not in {"space_voyage", "tech_lab", "abstract_shapes"} else 0.22)
@@ -1971,6 +2679,7 @@ class SceneFactory:
             "ocean_voyage": self.build_ocean,
             "tech_lab": self.build_tech,
             "jungle_war": self.build_jungle_war,
+            "last_survivor": self.build_last_survivor,
             "nature_valley": self.build_nature,
             "history_fort": self.build_history_fort,
             "abstract_shapes": self.build_abstract,

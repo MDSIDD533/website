@@ -218,6 +218,7 @@ export type BlenderThemeId =
   | 'ocean_voyage'
   | 'tech_lab'
   | 'jungle_war'
+  | 'last_survivor'
   | 'nature_valley'
   | 'history_fort'
   | 'abstract_shapes';
@@ -263,6 +264,7 @@ export interface BlenderPlan {
   captions: string[];
   caption_segments: Array<Record<string, any>>;
   scene_beats: Array<Record<string, any>>;
+  hero_dialogue?: Array<Record<string, any>>;
   warnings: string[];
   total_duration_sec: number;
   total_frames: number;

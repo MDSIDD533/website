@@ -1,7 +1,9 @@
 import json
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -129,6 +131,91 @@ def test_encode_blender_frames_with_captions(tmp_path: Path) -> None:
     assert result["quality"] == "turbo"
     assert result["captions_burned"] is True
     assert Path(result["output_path"]).stat().st_size > 0
+
+
+def test_blender_hero_voice_timeline_locks_measured_piper_joe_lines(tmp_path: Path) -> None:
+    preview = service.prepare_blender_3d_preview(
+        "Title: The Last Survivor\n"
+        "HERO: I am the only soldier still standing in this jungle.\n"
+        "HERO: I will carry their names home and walk out alive.",
+        {
+            "duration_sec": 3,
+            "theme": "last_survivor",
+            "include_hero_voice": True,
+            "hero_voice_id": "en_male_heroic",
+        },
+    )
+
+    def fake_synth(text, *, voice_id, speed, fps, output_wav_path):
+        output_wav_path.write_bytes(b"fake line wav placeholder")
+        assert voice_id == "en_male_heroic"
+        assert speed == pytest.approx(1.0)
+        assert fps == 15
+        return {
+            "samples": np.full(44100, 0.2, dtype=np.float32),
+            "sample_rate": 44100,
+            "duration_sec": 1.0,
+            "engine_used": "piper-onnx-local",
+            "voice_id": voice_id,
+            "voice_model": "en_US-joe-medium.onnx",
+            "model_path": "/fake/en_US-joe-medium.onnx",
+            "model_config_path": "/fake/en_US-joe-medium.onnx.json",
+            "wav_path": str(output_wav_path),
+        }
+
+    timeline = service.build_blender_hero_voice_timeline(
+        plan=preview["plan"],
+        output_dir=tmp_path / "audio",
+        target_duration_sec=3.0,
+        synth_line=fake_synth,
+    )
+
+    assert timeline is not None
+    assert timeline["engine_used"] == "piper-onnx-local"
+    assert timeline["voice_model"] == "en_US-joe-medium.onnx"
+    assert timeline["line_count"] == 2
+    assert timeline["total_duration_sec"] == pytest.approx(3.0)
+    assert timeline["speech_duration_sec"] == pytest.approx(2.0)
+    assert timeline["first_speech_start_sec"] < 0.3
+    assert timeline["last_speech_end_sec"] > 2.5
+    assert Path(timeline["audio_wav"]).stat().st_size > 0
+    assert Path(timeline["audio_json"]).is_file()
+    assert [line["duration_sec"] for line in timeline["lines"]] == [1.0, 1.0]
+
+
+def test_encode_blender_frames_muxes_hero_audio(tmp_path: Path) -> None:
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    for index in range(1, 7):
+        Image.new("RGB", (320, 180), color=(45, 80 + index * 8, 90)).save(
+            frames / f"frame_{index:04d}.png"
+        )
+    audio_path = tmp_path / "hero.wav"
+    with wave.open(str(audio_path), "wb") as wav_file:
+        wav_file.setnchannels(2)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(44100)
+        wav_file.writeframes(np.zeros((22050, 2), dtype=np.int16).tobytes())
+
+    result = service.encode_blender_frames(
+        frames_dir=frames,
+        output_path=tmp_path / "encoded-with-voice.mp4",
+        fps=12,
+        quality="turbo",
+        audio_path=audio_path,
+    )
+
+    import av
+
+    container = av.open(result["output_path"])
+    try:
+        stream_types = [stream.type for stream in container.streams]
+    finally:
+        container.close()
+    assert result["audio_muxed"] is True
+    assert result["audio_codec"] == "aac"
+    assert "video" in stream_types
+    assert "audio" in stream_types
 
 
 def test_job_manager_blender_render_orchestration(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

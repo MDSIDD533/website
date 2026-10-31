@@ -65,6 +65,7 @@ export const MotionStudioView: React.FC<{
   const [blenderTheme, setBlenderTheme] = useState<BlenderThemeSelection>('auto');
   const [blenderDuration, setBlenderDuration] = useState(18);
   const [includeCaptions, setIncludeCaptions] = useState(true);
+  const [includeHeroVoice, setIncludeHeroVoice] = useState(false);
   const [includeDialogueAudio, setIncludeDialogueAudio] = useState(false);
   const [includeNarrationAudio, setIncludeNarrationAudio] = useState(false);
   const [scriptText, setScriptText] = useState(SAMPLE_SCRIPT);
@@ -132,6 +133,9 @@ export const MotionStudioView: React.FC<{
         duration_sec: blenderDuration,
         theme: blenderTheme,
         include_captions: includeCaptions,
+        include_hero_voice: mode === 'render' && includeHeroVoice,
+        hero_voice_id: 'en_male_heroic',
+        voice_timing_mode: 'target_duration',
       };
     }
 
@@ -477,9 +481,30 @@ export const MotionStudioView: React.FC<{
                   </span>
                 </span>
               </label>
+              <label
+                htmlFor="include-hero-voice"
+                className={`mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3 ${mode !== 'render' ? 'cursor-not-allowed opacity-50' : ''}`}
+              >
+                <input
+                  id="include-hero-voice"
+                  type="checkbox"
+                  checked={includeHeroVoice}
+                  disabled={mode !== 'render'}
+                  onChange={(e) => setIncludeHeroVoice(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-orange-400"
+                />
+                <span>
+                  <span className="text-xs font-bold text-white">Hero voice — local Piper Joe</span>
+                  <span className="mt-1 block text-[11px] leading-relaxed text-slate-400">
+                    Add spoken lines to the script as <span className="font-mono text-slate-200">HERO: ...</span>.
+                    They are synthesized and measured locally before Blender renders, then muxed into the MP4.
+                    For The Last Survivor, the camera automatically stays behind the silhouetted hero.
+                  </span>
+                </span>
+              </label>
               <div className="mt-3 rounded-lg bg-slate-950/60 p-3 text-[11px] leading-relaxed text-slate-400">
                 <span className="font-bold text-slate-200">Turbo default:</span> 1280×720 at 100%
-                render scale, 15fps, one continuous smooth drone move and Cycles depth of field. {quality === 'turbo'
+                render scale, 15fps, one continuous smooth camera move and Cycles depth of field. Most themes use the drone path; The Last Survivor uses its low rear hero-tracking shot. {quality === 'turbo'
                   ? 'Turbo uses max 1 adaptive Cycles sample, RGB-only fast OIDN, zero indirect bounces and a CRF 23 veryfast encode.'
                   : quality === 'draft'
                     ? 'Draft uses max 2 adaptive Cycles samples with fast OIDN denoise.'

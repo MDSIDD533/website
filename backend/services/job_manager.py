@@ -25,7 +25,9 @@ from backend.services.blender_3d_service import (
     blender_environment,
     blender_runtime_info,
     build_blender_3d_project,
+    build_blender_hero_voice_timeline,
     encode_blender_frames,
+    prepare_blender_3d_preview,
     run_blender_3d_worker,
 )
 from backend.services.hardware_service import evaluate_workload_warnings
@@ -801,8 +803,34 @@ class JobManager:
         worker_dir = job_root / "worker"
         frames_dir = job_root / "frames"
         renders_dir = job_root / "renders"
-        for directory in (job_root, project_dir, worker_dir, frames_dir, renders_dir):
+        audio_dir = job_root / "audio"
+        for directory in (job_root, project_dir, worker_dir, frames_dir, renders_dir, audio_dir):
             directory.mkdir(parents=True, exist_ok=True)
+
+        fps_override = int(payload["fps"]) if payload.get("fps") is not None else None
+        quality_override = str(payload["quality"]) if payload.get("quality") is not None else None
+        duration_override = (
+            float(payload["duration_sec"]) if payload.get("duration_sec") is not None else None
+        )
+        theme_override = str(payload["theme"]) if payload.get("theme") is not None else None
+        include_captions_override = (
+            bool(payload["include_captions"])
+            if payload.get("include_captions") is not None
+            else None
+        )
+        include_hero_voice_override = (
+            bool(payload["include_hero_voice"])
+            if payload.get("include_hero_voice") is not None
+            else None
+        )
+        hero_voice_id_override = (
+            str(payload["hero_voice_id"]) if payload.get("hero_voice_id") is not None else None
+        )
+        voice_timing_mode_override = (
+            str(payload["voice_timing_mode"])
+            if payload.get("voice_timing_mode") is not None
+            else None
+        )
 
         self._update_job_state(
             job_id,
@@ -811,24 +839,85 @@ class JobManager:
             progress_measurable=True,
             log_line="Using the script parser and topic cues to select a procedural Blender theme.",
         )
+
+        hero_voice_timeline: dict[str, Any] | None = None
+        if mode == "render":
+            preliminary = prepare_blender_3d_preview(
+                script_text,
+                request_payload,
+                mode=mode,
+                fps=fps_override,
+                quality=quality_override,
+                duration_sec=duration_override,
+                theme=theme_override,
+                include_captions=include_captions_override,
+                include_hero_voice=include_hero_voice_override,
+                hero_voice_id=hero_voice_id_override,
+                voice_timing_mode=voice_timing_mode_override,
+            )
+            preliminary_request = preliminary.get("request") or {}
+            if bool(preliminary_request.get("include_hero_voice")):
+                self._update_job_state(
+                    job_id,
+                    current_stage="Synthesizing and measuring local Piper Joe hero voice",
+                    progress_pct=5.0,
+                    progress_measurable=True,
+                    log_line=(
+                        "Generating the hero's speech locally before Blender rendering so "
+                        "the scene duration is based on measured Piper Joe audio."
+                    ),
+                )
+                timing_mode = str(preliminary_request.get("voice_timing_mode") or "target_duration")
+                hero_voice_timeline = build_blender_hero_voice_timeline(
+                    plan=preliminary["plan"],
+                    output_dir=audio_dir,
+                    target_duration_sec=(
+                        None
+                        if timing_mode == "fit_speech"
+                        else float(preliminary_request.get("duration_sec") or 18.0)
+                    ),
+                    on_log=lambda line: self._update_job_state(job_id, log_line=line),
+                    is_cancelled=lambda: self._is_cancelled(job_id),
+                )
+                if hero_voice_timeline is not None:
+                    measured_duration = float(hero_voice_timeline["total_duration_sec"])
+                    if timing_mode == "fit_speech" or abs(
+                        measured_duration - float(preliminary_request.get("duration_sec") or 0)
+                    ) > 0.001:
+                        duration_override = measured_duration
+                    self._update_job_state(
+                        job_id,
+                        current_stage="Hero voice measured and locked to Blender timeline",
+                        progress_pct=7.0,
+                        progress_measurable=True,
+                        output_paths={
+                            "hero_voice": hero_voice_timeline,
+                            "hero_voice_wav": hero_voice_timeline["audio_wav"],
+                            "hero_voice_json": hero_voice_timeline["audio_json"],
+                            "has_hero_voice": True,
+                        },
+                        log_line=(
+                            f"Locked Blender duration to the measured Piper Joe timeline: "
+                            f"{duration_override:.3f}s, {hero_voice_timeline['line_count']} lines, "
+                            f"{hero_voice_timeline['speech_coverage_pct']}% speech coverage."
+                        ),
+                    )
+            if self._is_cancelled(job_id):
+                raise InterruptedError("Blender 3D job cancelled by user.")
+
         built = build_blender_3d_project(
             script_text=script_text,
             request_payload=request_payload,
             output_dir=project_dir,
             mode=mode,
-            fps=int(payload["fps"]) if payload.get("fps") is not None else None,
-            quality=str(payload["quality"]) if payload.get("quality") is not None else None,
-            duration_sec=(
-                float(payload["duration_sec"])
-                if payload.get("duration_sec") is not None
-                else None
-            ),
-            theme=str(payload["theme"]) if payload.get("theme") is not None else None,
-            include_captions=(
-                bool(payload["include_captions"])
-                if payload.get("include_captions") is not None
-                else None
-            ),
+            fps=fps_override,
+            quality=quality_override,
+            duration_sec=duration_override,
+            theme=theme_override,
+            include_captions=include_captions_override,
+            include_hero_voice=include_hero_voice_override,
+            hero_voice_id=hero_voice_id_override,
+            voice_timing_mode=voice_timing_mode_override,
         )
         if self._is_cancelled(job_id):
             raise InterruptedError("Blender 3D job cancelled by user.")
@@ -853,6 +942,15 @@ class JobManager:
             "quality": request.get("quality"),
             "blender_plan": plan,
         }
+        if hero_voice_timeline is not None:
+            outputs.update(
+                {
+                    "hero_voice": hero_voice_timeline,
+                    "hero_voice_wav": hero_voice_timeline["audio_wav"],
+                    "hero_voice_json": hero_voice_timeline["audio_json"],
+                    "has_hero_voice": True,
+                }
+            )
         self._update_job_state(
             job_id,
             current_stage=f"Blender scene planned: {topic.get('label') or topic.get('theme')}",
@@ -969,6 +1067,7 @@ class JobManager:
             fps=int(request.get("fps") or 15),
             quality=str(request.get("quality") or "turbo"),
             captions_path=built.captions_path,
+            audio_path=hero_voice_timeline["audio_wav"] if hero_voice_timeline else None,
             on_log=_on_log,
             on_process=_on_process,
             is_cancelled=lambda: self._is_cancelled(job_id),
@@ -1012,7 +1111,32 @@ class JobManager:
             raise RuntimeError(
                 f"Blender MP4 decoded {decoded_frames} frames, expected {expected_frames}"
             )
+        if hero_voice_timeline is not None:
+            streams = verification.get("streams") or []
+            has_audio = any(
+                isinstance(stream, dict) and stream.get("type") == "audio"
+                for stream in streams
+            )
+            verification = {
+                **verification,
+                "hero_voice_expected": True,
+                "hero_voice_stream_present": has_audio,
+            }
+            verification_path.write_text(
+                json.dumps(verification, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            outputs["verification"] = verification
+            if streams and not has_audio:
+                raise RuntimeError(
+                    "Blender hero-voice MP4 verification found no audio stream: "
+                    + str(verification)
+                )
 
+        audio_note = (
+            f", {hero_voice_timeline['line_count']} Piper Joe hero lines"
+            if hero_voice_timeline is not None
+            else ""
+        )
         self._update_job_state(
             job_id,
             status="completed",
@@ -1025,7 +1149,7 @@ class JobManager:
                 f"Blender 3D MP4 verified: {output_mp4.name} "
                 f"({topic.get('label')}, {verification.get('width')}×{verification.get('height')} @ "
                 f"{verification.get('fps')}fps, {verification.get('duration_sec')}s, "
-                f"{decoded_frames} decoded frames) in {round(time.time() - t_start, 2)}s."
+                f"{decoded_frames} decoded frames{audio_note}) in {round(time.time() - t_start, 2)}s."
             ),
         )
 

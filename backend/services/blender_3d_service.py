@@ -80,6 +80,9 @@ def prepare_blender_3d_preview(
     duration_sec: float | None = None,
     theme: str | None = None,
     include_captions: bool | None = None,
+    include_hero_voice: bool | None = None,
+    hero_voice_id: str | None = None,
+    voice_timing_mode: str | None = None,
 ) -> dict[str, Any]:
     if mode not in {"build_only", "render"}:
         raise ValueError("Blender mode must be 'build_only' or 'render'")
@@ -94,6 +97,12 @@ def prepare_blender_3d_preview(
         payload["theme"] = theme
     if include_captions is not None:
         payload["include_captions"] = include_captions
+    if include_hero_voice is not None:
+        payload["include_hero_voice"] = include_hero_voice
+    if hero_voice_id is not None:
+        payload["hero_voice_id"] = hero_voice_id
+    if voice_timing_mode is not None:
+        payload["voice_timing_mode"] = voice_timing_mode
     # Validate explicitly before planning so API callers receive the same
     # bounded errors as direct planner users.
     Blender3DRequest.from_dict(payload)
@@ -174,6 +183,9 @@ def build_blender_3d_project(
     duration_sec: float | None = None,
     theme: str | None = None,
     include_captions: bool | None = None,
+    include_hero_voice: bool | None = None,
+    hero_voice_id: str | None = None,
+    voice_timing_mode: str | None = None,
 ) -> BuiltBlender3DProject:
     preview = prepare_blender_3d_preview(
         script_text,
@@ -184,6 +196,9 @@ def build_blender_3d_project(
         duration_sec=duration_sec,
         theme=theme,
         include_captions=include_captions,
+        include_hero_voice=include_hero_voice,
+        hero_voice_id=hero_voice_id,
+        voice_timing_mode=voice_timing_mode,
     )
     plan = preview["plan"]
     root = Path(output_dir).expanduser().resolve()
@@ -231,6 +246,233 @@ def build_blender_3d_project(
         manifest_path=manifest_path,
         plan=plan,
     )
+
+
+def _synthesize_blender_hero_line(
+    text: str,
+    *,
+    voice_id: str,
+    speed: float,
+    fps: int,
+    output_wav_path: Path,
+) -> dict[str, Any]:
+    """Synthesize one hero line with the project's local TTS engine."""
+
+    from voice_engine.tts import synthesize_speech_segment
+
+    return synthesize_speech_segment(
+        text,
+        voice_id=voice_id,
+        language="en",
+        speed=float(speed),
+        pitch=1.0,
+        emotion="determined",
+        video_fps=int(fps),
+        output_wav_path=output_wav_path,
+    )
+
+
+def build_blender_hero_voice_timeline(
+    *,
+    plan: dict[str, Any],
+    output_dir: str | Path,
+    target_duration_sec: float | None = None,
+    synth_line: Callable[..., dict[str, Any]] | None = None,
+    on_log: LogCallback | None = None,
+    is_cancelled: CancelCheck | None = None,
+) -> dict[str, Any] | None:
+    """Measure and assemble the hero's local Piper Joe speech timeline.
+
+    Speech is synthesized once, before Blender renders.  In target-duration
+    mode the caller supplies the intended video length; the function refuses
+    to truncate speech if the measured lines cannot fit with a natural lead,
+    short inter-line gaps and a short tail.  With no target it returns the
+    minimum speech-led duration so the job can rebuild its plan around the
+    real voice rather than leaving a long silent ending.
+    """
+
+    request = plan.get("request") or {}
+    if not bool(request.get("include_hero_voice")):
+        return None
+
+    dialogue = [
+        {
+            "index": int(entry.get("index") or index + 1),
+            "speaker": str(entry.get("speaker") or request.get("hero_name") or "Hero"),
+            "text": str(entry.get("text") or "").strip(),
+            "source": str(entry.get("source") or "plan"),
+        }
+        for index, entry in enumerate(plan.get("hero_dialogue") or [])
+        if isinstance(entry, dict) and str(entry.get("text") or "").strip()
+    ]
+    if not dialogue:
+        raise ValueError(
+            "Hero voice is enabled, but the Blender plan contains no hero dialogue. "
+            "Use 'HERO: ...' script lines or request hero_lines."
+        )
+
+    root = Path(output_dir).expanduser().resolve()
+    lines_dir = root / "lines"
+    lines_dir.mkdir(parents=True, exist_ok=True)
+    synthesize = synth_line or _synthesize_blender_hero_line
+    voice_id = str(request.get("hero_voice_id") or "en_male_heroic")
+    speed = float(request.get("hero_voice_speed") or 1.0)
+    fps = int(request.get("fps") or 15)
+
+    import numpy as np
+
+    synthesized: list[dict[str, Any]] = []
+    for position, entry in enumerate(dialogue, start=1):
+        if is_cancelled and is_cancelled():
+            raise InterruptedError("Blender hero voice synthesis cancelled.")
+        line_path = lines_dir / f"hero_line_{position:02d}.wav"
+        result = synthesize(
+            entry["text"],
+            voice_id=voice_id,
+            speed=speed,
+            fps=fps,
+            output_wav_path=line_path,
+        )
+        engine_used = str(result.get("engine_used") or "")
+        voice_model = str(result.get("voice_model") or "")
+        if engine_used != "piper-onnx-local" or voice_model != "en_US-joe-medium.onnx":
+            raise RuntimeError(
+                "Hero voice requires the local Piper Joe model "
+                "(en_US-joe-medium.onnx); synthesis reported "
+                f"engine='{engine_used or 'unknown'}', model='{voice_model or 'unknown'}'."
+            )
+        samples = np.asarray(result.get("samples"), dtype=np.float32).reshape(-1)
+        sample_rate = int(result.get("sample_rate") or 44100)
+        if samples.size == 0 or sample_rate <= 0:
+            raise RuntimeError(f"Piper Joe returned no audio samples for hero line {position}.")
+        duration = float(samples.size / sample_rate)
+        synthesized.append(
+            {
+                **entry,
+                "index": position,
+                "duration_sec": round(duration, 3),
+                "sample_rate": sample_rate,
+                "samples": samples,
+                "wav_path": str(line_path),
+                "engine_used": engine_used,
+                "voice_id": str(result.get("voice_id") or voice_id),
+                "voice_model": voice_model,
+                "model_path": str(result.get("model_path") or ""),
+                "model_config_path": str(result.get("model_config_path") or ""),
+            }
+        )
+        if on_log:
+            on_log(
+                f"Measured Piper Joe hero line {position}/{len(dialogue)}: "
+                f"{duration:.3f}s ({entry['text'][:72]}...)"
+            )
+
+    sample_rates = {int(item["sample_rate"]) for item in synthesized}
+    if len(sample_rates) != 1:
+        raise RuntimeError(f"Hero speech lines used inconsistent sample rates: {sorted(sample_rates)}")
+    sample_rate = sample_rates.pop()
+    speech_total = sum(float(item["duration_sec"]) for item in synthesized)
+    line_count = len(synthesized)
+    start_pad = 0.18
+    base_gap = 0.22
+    tail_pad = 0.35
+    minimum_total = start_pad + speech_total + base_gap * max(0, line_count - 1) + tail_pad
+    total_duration = minimum_total if target_duration_sec is None else float(target_duration_sec)
+    if total_duration + 1e-9 < minimum_total:
+        raise ValueError(
+            f"Measured Piper Joe hero speech needs at least {minimum_total:.3f}s "
+            f"(speech {speech_total:.3f}s plus natural lead/gaps/tail), but the "
+            f"requested Blender duration is {total_duration:.3f}s. Increase duration_sec "
+            "or shorten the hero lines."
+        )
+
+    extra = max(0.0, total_duration - minimum_total)
+    gap_extra_each = 0.0
+    if line_count > 1 and extra:
+        gap_extra_each = min(0.55, (extra * 0.65) / (line_count - 1))
+    remaining = extra - gap_extra_each * max(0, line_count - 1)
+    start_extra = min(0.17, remaining * 0.25)
+    start_pad += start_extra
+    tail_pad += max(0.0, remaining - start_extra)
+    gap = base_gap + gap_extra_each
+
+    timeline = np.zeros(max(1, int(round(total_duration * sample_rate))), dtype=np.float32)
+    cursor = start_pad
+    public_lines: list[dict[str, Any]] = []
+    fade_samples = max(1, int(0.005 * sample_rate))
+    for position, item in enumerate(synthesized, start=1):
+        samples = np.asarray(item["samples"], dtype=np.float32).copy()
+        if samples.size > fade_samples * 2:
+            ramp = np.linspace(0.0, 1.0, fade_samples, dtype=np.float32)
+            samples[:fade_samples] *= ramp
+            samples[-fade_samples:] *= ramp[::-1]
+        start_index = int(round(cursor * sample_rate))
+        end_index = min(timeline.size, start_index + samples.size)
+        if end_index <= start_index:
+            raise RuntimeError("Hero speech timeline overflowed while placing a line.")
+        timeline[start_index:end_index] += samples[: end_index - start_index]
+        actual_end = end_index / sample_rate
+        gap_after = gap if position < line_count else 0.0
+        public_lines.append(
+            {
+                "index": position,
+                "speaker": item["speaker"],
+                "text": item["text"],
+                "source": item["source"],
+                "start_sec": round(start_index / sample_rate, 3),
+                "end_sec": round(actual_end, 3),
+                "duration_sec": round((end_index - start_index) / sample_rate, 3),
+                "gap_after_sec": round(gap_after, 3),
+                "wav_path": item["wav_path"],
+                "engine_used": item["engine_used"],
+                "voice_id": item["voice_id"],
+                "voice_model": item["voice_model"],
+                "model_path": item["model_path"],
+                "model_config_path": item["model_config_path"],
+            }
+        )
+        cursor = actual_end + gap_after
+
+    peak = float(np.max(np.abs(timeline))) if timeline.size else 0.0
+    if peak > 0.92:
+        timeline *= np.float32(0.92 / peak)
+
+    from voice_engine.tts import write_stereo_wav
+
+    timeline_wav = root / "hero-voice-timeline.wav"
+    timeline_json = root / "hero-voice-timeline.json"
+    write_stereo_wav(timeline_wav, timeline, sample_rate)
+    metadata: dict[str, Any] = {
+        "engine_used": "piper-onnx-local",
+        "voice_id": voice_id,
+        "voice_model": "en_US-joe-medium.onnx",
+        "voice_models": sorted({str(line["voice_model"]) for line in public_lines}),
+        "speaker": str(request.get("hero_name") or "Hero"),
+        "line_count": line_count,
+        "lines": public_lines,
+        "audio_wav": str(timeline_wav),
+        "audio_json": str(timeline_json),
+        "sample_rate": sample_rate,
+        "total_duration_sec": round(float(timeline.size / sample_rate), 3),
+        "speech_duration_sec": round(speech_total, 3),
+        "speech_coverage_pct": round((speech_total / total_duration * 100.0) if total_duration else 0.0, 2),
+        "first_speech_start_sec": public_lines[0]["start_sec"] if public_lines else None,
+        "last_speech_end_sec": public_lines[-1]["end_sec"] if public_lines else None,
+        "tail_silence_sec": round(max(0.0, total_duration - float(public_lines[-1]["end_sec"])), 3)
+        if public_lines
+        else round(total_duration, 3),
+        "minimum_speech_led_duration_sec": round(minimum_total, 3),
+        "target_duration_sec": round(total_duration, 3),
+        "timing_mode": str(request.get("voice_timing_mode") or "target_duration"),
+    }
+    _write_json(timeline_json, metadata)
+    if on_log:
+        on_log(
+            f"Piper Joe hero timeline ready: {line_count} lines, {speech_total:.3f}s speech "
+            f"({metadata['speech_coverage_pct']}%), first at {metadata['first_speech_start_sec']}s, "
+            f"last ends at {metadata['last_speech_end_sec']}s."
+        )
+    return metadata
 
 
 def _candidate_blender_pythons() -> list[Path]:
@@ -551,6 +793,7 @@ def encode_blender_frames(
     fps: int,
     quality: str = "turbo",
     captions_path: str | Path | None = None,
+    audio_path: str | Path | None = None,
     on_log: LogCallback | None = None,
     on_process: ProcessCallback | None = None,
     is_cancelled: CancelCheck | None = None,
@@ -569,6 +812,11 @@ def encode_blender_frames(
         profile = quality_profile("turbo")
     encode_crf = int(profile.get("encode_crf") or 23)
     encode_preset = str(profile.get("encode_preset") or "veryfast")
+    audio: Path | None = None
+    if audio_path is not None:
+        audio = Path(audio_path).expanduser().resolve()
+        if not audio.is_file() or audio.stat().st_size <= 0:
+            raise RuntimeError(f"Blender speech audio was not found or is empty: {audio}")
     filters: list[str] = []
     captions_burned = False
     if captions_path is not None:
@@ -595,21 +843,29 @@ def encode_blender_frames(
         "1",
         "-i",
         "frame_%04d.png",
-        "-vf",
-        ",".join(filters),
-        "-an",
-        "-c:v",
-        "libx264",
-        "-preset",
-        encode_preset,
-        "-crf",
-        str(encode_crf),
-        "-r",
-        str(fps),
-        "-movflags",
-        "+faststart",
-        str(output),
     ]
+    if audio is not None:
+        command.extend(["-i", str(audio)])
+    command.extend(["-vf", ",".join(filters)])
+    if audio is None:
+        command.append("-an")
+    else:
+        command.extend(["-map", "0:v:0", "-map", "1:a:0"])
+    command.extend(
+        [
+            "-c:v",
+            "libx264",
+            "-preset",
+            encode_preset,
+            "-crf",
+            str(encode_crf),
+            "-r",
+            str(fps),
+        ]
+    )
+    if audio is not None:
+        command.extend(["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2", "-shortest"])
+    command.extend(["-movflags", "+faststart", str(output)])
     started = time.time()
     proc = subprocess.Popen(
         command,
@@ -653,6 +909,9 @@ def encode_blender_frames(
         "preset": encode_preset,
         "quality": quality,
         "captions_burned": captions_burned,
+        "audio_muxed": audio is not None,
+        "audio_path": str(audio) if audio is not None else None,
+        "audio_codec": "aac" if audio is not None else None,
         "elapsed_sec": round(time.time() - started, 3),
         "log_tail": tail[-20:],
         "command": command,

@@ -25,6 +25,7 @@ def test_blender_theme_catalog_marks_blender_as_primary(api_client: TestClient) 
         "ocean_voyage",
         "tech_lab",
         "jungle_war",
+        "last_survivor",
         "nature_valley",
         "history_fort",
         "abstract_shapes",
@@ -114,6 +115,31 @@ def test_blender_preview_selects_jungle_war(api_client: TestClient) -> None:
     assert payload["topic"]["theme"] == "jungle_war"
     assert payload["total_frames"] == 900
     assert payload["request"]["camera_move"] == "drone"
+
+
+def test_blender_preview_selects_last_survivor_with_piper_joe_hero(api_client: TestClient) -> None:
+    response = api_client.post(
+        "/api/jobs/blender-3d/preview",
+        json={
+            "script_text": (
+                "Title: The Last Survivor (Jungle War)\n"
+                "HERO: Rain was falling when my last radio went silent, and I knew my entire unit was gone.\n"
+                "HERO: I am the only soldier still standing, yet every fallen brother marches beside me through this jungle."
+            ),
+            "duration_sec": 30,
+            "include_hero_voice": True,
+            "hero_voice_id": "en_male_heroic",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["topic"]["theme"] == "last_survivor"
+    assert payload["total_frames"] == 450
+    assert payload["request"]["camera_move"] == "hero_tracking"
+    assert payload["request"]["include_hero_voice"] is True
+    assert payload["request"]["hero_voice_id"] == "en_male_heroic"
+    assert len(payload["plan"]["hero_dialogue"]) == 2
 
 
 def test_blender_invalid_request_is_rejected_before_enqueue(api_client: TestClient) -> None:

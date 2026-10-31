@@ -7,7 +7,7 @@ from typing import Any
 
 from app.script_parser import parse_script
 
-PLANNER_VERSION = "blender3d-plan-v2"
+PLANNER_VERSION = "blender3d-plan-v3"
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 DEFAULT_FPS = 15
@@ -146,6 +146,14 @@ THEMES: dict[str, ThemeInfo] = {
         default_captions=("JUNGLE WAR", "HIDDEN IN THE CANOPY", "THE AMBUSH", "SURVIVE THE JUNGLE"),
         palette={"sky": "#24352C", "ground": "#14251A", "accent": "#C98A3D", "water": "#243C34"},
     ),
+    "last_survivor": ThemeInfo(
+        id="last_survivor",
+        label="The Last Survivor",
+        environment="jungle_war",
+        description="Dark rain-soaked jungle battlefield filmed from behind one rim-lit soldier-commander as he passes wreckage, memorials and a flooded stream toward dawn.",
+        default_captions=("THE LAST SURVIVOR", "ALONE IN THE RAIN", "NO SURRENDER", "CARRY THEIR NAMES"),
+        palette={"sky": "#1E2E28", "ground": "#101E15", "accent": "#D9903F", "water": "#1D3833"},
+    ),
     "nature_valley": ThemeInfo(
         id="nature_valley",
         label="Nature Valley",
@@ -182,6 +190,16 @@ def quality_profile(quality: str) -> dict[str, Any]:
     return dict(QUALITY_PROFILES[quality])
 
 
+HERO_PIPER_JOE_VOICE_IDS = (
+    "en_male_heroic",
+    "en_male_neural",
+    "en_narrator_deep",
+    "en_male_deep",
+    "en_male_calm",
+    "piper_neural_local",
+)
+
+
 @dataclass(frozen=True)
 class Blender3DRequest:
     theme: str = "auto"
@@ -196,13 +214,19 @@ class Blender3DRequest:
     intensity: float = 1.0
     include_captions: bool = True
     seed: int = 1939
+    include_hero_voice: bool = False
+    hero_name: str = "Hero"
+    hero_voice_id: str = "en_male_heroic"
+    hero_voice_speed: float = 1.0
+    hero_lines: tuple[str, ...] = ()
+    voice_timing_mode: str = "target_duration"
 
     def __post_init__(self) -> None:
         if self.theme not in {"auto", *THEME_IDS}:
             raise ValueError(f"Unsupported Blender theme: {self.theme}")
         if self.quality not in QUALITY_PROFILES:
             raise ValueError(f"Unsupported Blender quality profile: {self.quality}")
-        if self.camera_move not in {"drone", "cinematic", "orbit", "tracking"}:
+        if self.camera_move not in {"drone", "cinematic", "orbit", "tracking", "hero_tracking"}:
             raise ValueError(f"Unsupported camera move: {self.camera_move}")
         if not (3.0 <= float(self.duration_sec) <= 120.0):
             raise ValueError("duration_sec must be between 3 and 120 seconds")
@@ -219,6 +243,22 @@ class Blender3DRequest:
         for line in self.caption_lines:
             if len(str(line)) > 80:
                 raise ValueError("caption lines must be at most 80 characters")
+        if not str(self.hero_name).strip() or len(str(self.hero_name)) > 40:
+            raise ValueError("hero_name must contain between 1 and 40 characters")
+        if self.hero_voice_id not in HERO_PIPER_JOE_VOICE_IDS:
+            raise ValueError(
+                "hero_voice_id must be one of the local Piper Joe male voice IDs: "
+                + ", ".join(HERO_PIPER_JOE_VOICE_IDS)
+            )
+        if not (0.6 <= float(self.hero_voice_speed) <= 1.4):
+            raise ValueError("hero_voice_speed must be between 0.6 and 1.4")
+        if len(self.hero_lines) > 8:
+            raise ValueError("hero_lines supports at most 8 entries")
+        for line in self.hero_lines:
+            if len(str(line)) > 320:
+                raise ValueError("hero lines must be at most 320 characters")
+        if self.voice_timing_mode not in {"target_duration", "fit_speech"}:
+            raise ValueError("voice_timing_mode must be 'target_duration' or 'fit_speech'")
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any] | None) -> "Blender3DRequest":
@@ -226,6 +266,9 @@ class Blender3DRequest:
         captions = raw.get("caption_lines") or ()
         if isinstance(captions, str):
             captions = (captions,)
+        hero_lines = raw.get("hero_lines") or ()
+        if isinstance(hero_lines, str):
+            hero_lines = (hero_lines,)
         return cls(
             theme=str(raw.get("theme") or "auto"),
             scene_label=(str(raw["scene_label"]) if raw.get("scene_label") not in {None, ""} else None),
@@ -239,11 +282,18 @@ class Blender3DRequest:
             intensity=float(raw.get("intensity") or 1.0),
             include_captions=bool(raw.get("include_captions", True)),
             seed=int(raw.get("seed") or 1939),
+            include_hero_voice=bool(raw.get("include_hero_voice", False)),
+            hero_name=str(raw.get("hero_name") or "Hero"),
+            hero_voice_id=str(raw.get("hero_voice_id") or "en_male_heroic"),
+            hero_voice_speed=float(raw.get("hero_voice_speed") or 1.0),
+            hero_lines=tuple(str(item).strip() for item in hero_lines if str(item).strip()),
+            voice_timing_mode=str(raw.get("voice_timing_mode") or "target_duration"),
         )
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["caption_lines"] = list(self.caption_lines)
+        data["hero_lines"] = list(self.hero_lines)
         data["render_profile"] = quality_profile(self.quality)
         data["frame_count"] = max(1, round(float(self.duration_sec) * int(self.fps)))
         return data
@@ -281,6 +331,7 @@ class Blender3DPlan:
     captions: list[str]
     caption_segments: list[dict[str, Any]]
     scene_beats: list[dict[str, Any]]
+    hero_dialogue: list[dict[str, Any]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -296,6 +347,7 @@ class Blender3DPlan:
             "captions": list(self.captions),
             "caption_segments": list(self.caption_segments),
             "scene_beats": list(self.scene_beats),
+            "hero_dialogue": list(self.hero_dialogue),
             "warnings": list(self.warnings),
             "total_duration_sec": float(self.request.duration_sec),
             "total_frames": max(1, round(float(self.request.duration_sec) * int(self.request.fps))),
@@ -334,6 +386,13 @@ _CUE_PATTERNS: dict[str, tuple[tuple[str, str], ...]] = {
         ("camouflage", r"\bcamouflage(?:d)?\b|\bhidden\s+soldiers?\b|\bcanopy\b"),
         ("patrol", r"\bpatrol(?:s|led|ling)?\b"),
         ("survival", r"\bsurviv(?:al|e|ed|ors?|ing)\b"),
+    ),
+    "last_survivor": (
+        ("last survivor", r"\blast\s+survivor\b|\bthe\s+last\s+survivor\b"),
+        ("lone survivor", r"\b(?:lone|sole|only)\s+survivor\b"),
+        ("last one standing", r"\b(?:last|only)\s+(?:one|soldier|man)\s+(?:still\s+)?standing\b"),
+        ("only soldier left", r"\bonly\s+soldier\s+(?:still\s+)?(?:standing|left|alive)\b"),
+        ("entire unit gone", r"\b(?:entire|whole)\s+unit\s+(?:was\s+)?gone\b"),
     ),
     "finance": (
         ("dollar", r"\bdollar(?:s)?\b|\busd\b"),
@@ -415,6 +474,7 @@ def classify_script_topic(script_text: str, scenes: list[dict[str, Any]] | None 
     ww2 = _cue_matches(text, "ww2_specific")
     war = _cue_matches(text, "war_general")
     jungle_war = _cue_matches(text, "jungle_war")
+    last_survivor = _cue_matches(text, "last_survivor")
     parser_locations = {
         str(scene.get("environment") or scene.get("location") or "")
         for scene in scene_list
@@ -443,6 +503,14 @@ def classify_script_topic(script_text: str, scenes: list[dict[str, Any]] | None 
         return _decision("ww2_battlefield", ww2 + war, reasons, 0.98 if strong_ww2_phrase else 0.92)
     jungle_place = any(cue in jungle_war for cue in ("jungle war", "jungle", "forest")) or "jungle" in parser_locations
     jungle_tactics = any(cue in jungle_war for cue in ("jungle war", "guerrilla", "ambush", "camouflage", "patrol"))
+    if last_survivor and (jungle_place or war or "fight" in parser_actions):
+        reasons.extend(["last_survivor_cues", "hero_focus_precedence_over_jungle_war"])
+        return _decision(
+            "last_survivor",
+            last_survivor + jungle_war + war,
+            reasons,
+            0.97 if "last survivor" in last_survivor or len(last_survivor) >= 2 else 0.9,
+        )
     if jungle_place and (jungle_tactics or len(war) >= 2 or "fight" in parser_actions):
         reasons.extend(["jungle_war_cues", "jungle_war_precedence_over_generic_battlefield"])
         if "jungle" in parser_locations and "parser:jungle" not in jungle_war:
@@ -507,6 +575,70 @@ def extract_title_and_sentences(script_text: str) -> tuple[str, list[str]]:
     return title, sentences
 
 
+def _clean_spoken_line(value: str) -> str:
+    text = re.sub(r"\s+", " ", str(value)).strip()
+    return text.strip("\"'“”‘’")
+
+
+def extract_hero_dialogue(
+    script_text: str,
+    scenes: list[dict[str, Any]],
+    request: Blender3DRequest,
+) -> list[dict[str, Any]]:
+    """Extract the single hero's spoken lines without changing their order.
+
+    Explicit request lines win.  Scripts can otherwise use a simple
+    ``HERO: ...`` label (or the configured hero name).  As a final fallback,
+    dialogue already extracted by the shared script parser is used when its
+    speaker matches the hero name or when the whole script has one speaker.
+    """
+
+    explicit = [_clean_spoken_line(line) for line in request.hero_lines if _clean_spoken_line(line)]
+    if explicit:
+        return [
+            {"index": index + 1, "speaker": request.hero_name, "text": line, "source": "request"}
+            for index, line in enumerate(explicit[:8])
+        ]
+
+    labels = {request.hero_name.casefold(), "hero", "commander", "soldier"}
+    labelled: list[str] = []
+    for match in re.finditer(r"(?im)^\s*([A-Za-z][A-Za-z ._-]{0,39})\s*:\s*(.+?)\s*$", script_text or ""):
+        speaker = match.group(1).strip()
+        if speaker.casefold() in labels:
+            line = _clean_spoken_line(match.group(2))
+            if line:
+                labelled.append(line)
+    if labelled:
+        return [
+            {"index": index + 1, "speaker": request.hero_name, "text": line, "source": "script_label"}
+            for index, line in enumerate(labelled[:8])
+        ]
+
+    parsed: list[tuple[str, str]] = []
+    for scene in scenes or []:
+        if not isinstance(scene, dict):
+            continue
+        for entry in scene.get("dialogue") or []:
+            if isinstance(entry, dict):
+                speaker = str(entry.get("speaker") or entry.get("character") or "").strip()
+                line = _clean_spoken_line(str(entry.get("line") or entry.get("text") or ""))
+            else:
+                speaker = ""
+                line = _clean_spoken_line(str(entry))
+            if line:
+                parsed.append((speaker, line))
+    speakers = {speaker.casefold() for speaker, _line in parsed if speaker}
+    selected = [
+        line
+        for speaker, line in parsed
+        if not speaker or speaker.casefold() in labels or len(speakers) <= 1
+    ]
+    return [
+        {"index": index + 1, "speaker": request.hero_name, "text": line, "source": "parsed_dialogue"}
+        for index, line in enumerate(selected[:8])
+    ]
+
+
 def derive_captions(script_text: str, theme: str, title: str, sentences: list[str]) -> list[str]:
     if theme == "ww2_battlefield":
         text = script_text.lower()
@@ -517,6 +649,22 @@ def derive_captions(script_text: str, theme: str, title: str, sentences: list[st
             captions.append("WAR DECLARED")
         if any(phrase in text for phrase in ("europe and the pacific", "land, sea", "land · sea", "land sea and air")):
             captions.append("LAND · SEA · AIR")
+        for fallback in THEMES[theme].default_captions:
+            if fallback not in captions:
+                captions.append(fallback)
+            if len(captions) >= 4:
+                break
+        return captions[:4]
+
+    if theme == "last_survivor":
+        text = script_text.lower()
+        captions = [_clean_caption(title or "The Last Survivor")]
+        if any(word in text for word in ("rain", "alone", "only soldier", "last one")):
+            captions.append("ALONE IN THE RAIN")
+        if any(word in text for word in ("surrender", "courage", "never take")):
+            captions.append("NO SURRENDER")
+        if any(phrase in text for phrase in ("their names", "fallen brother", "fallen brothers", "carry")):
+            captions.append("CARRY THEIR NAMES")
         for fallback in THEMES[theme].default_captions:
             if fallback not in captions:
                 captions.append(fallback)
@@ -635,13 +783,32 @@ def plan_blender_3d(
         captions = []
     scene_label = resolved.scene_label or f"{THEMES[topic.theme].label.upper()} · BLENDER 3D"
     resolved = replace(resolved, scene_label=scene_label, caption_lines=tuple(captions))
+    hero_dialogue = extract_hero_dialogue(script, scenes, resolved)
     warnings: list[str] = []
+    if topic.theme == "last_survivor":
+        # This theme is defined by its back/silhouette composition.  An
+        # aerial drone or orbit would either lose the protagonist or reveal
+        # the low-poly face, so the plan records the camera that is actually
+        # built instead of silently retaining an incompatible request.
+        if resolved.camera_move != "hero_tracking":
+            warnings.append(
+                "The Last Survivor uses a low rear hero-tracking camera; "
+                f"camera_move '{resolved.camera_move}' was replaced with 'hero_tracking'."
+            )
+        resolved = replace(resolved, camera_move="hero_tracking")
+    if resolved.include_hero_voice and not hero_dialogue:
+        warnings.append(
+            "Hero voice is enabled, but no HERO lines were found. Add lines such as 'HERO: ...' "
+            "or pass hero_lines in the Blender request."
+        )
     if not script.strip():
         warnings.append("Script is empty; the selected/default procedural theme will be rendered without script beats.")
     if topic.theme == "ww2_battlefield" and requested.theme == "auto":
         warnings.append("WWII cues were detected, so the large Blender battlefield scene was selected.")
     if topic.theme == "jungle_war" and requested.theme == "auto":
         warnings.append("Jungle-war cues were detected, so the dark aerial rainforest ambush scene was selected.")
+    if topic.theme == "last_survivor" and requested.theme == "auto":
+        warnings.append("Last-survivor cues were detected, so the rear-silhouette hero scene was selected.")
     return Blender3DPlan(
         planner_version=PLANNER_VERSION,
         script_text=script,
@@ -653,5 +820,6 @@ def plan_blender_3d(
         captions=captions,
         caption_segments=_caption_segments(captions, float(resolved.duration_sec)),
         scene_beats=_scene_beats(scenes, float(resolved.duration_sec)),
+        hero_dialogue=hero_dialogue,
         warnings=warnings,
     )

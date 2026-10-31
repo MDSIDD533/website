@@ -77,6 +77,7 @@ BlenderTheme = Literal[
     "ocean_voyage",
     "tech_lab",
     "jungle_war",
+    "last_survivor",
     "nature_valley",
     "history_fort",
     "abstract_shapes",
@@ -92,6 +93,9 @@ class Blender3DJobRequest(BaseModel):
     duration_sec: float | None = Field(default=None, ge=3.0, le=120.0)
     theme: BlenderTheme = "auto"
     include_captions: bool = True
+    include_hero_voice: bool = False
+    hero_voice_id: str = Field(default="en_male_heroic", max_length=64)
+    voice_timing_mode: Literal["target_duration", "fit_speech"] = "target_duration"
     project_id: str | None = None
 
 
@@ -151,6 +155,9 @@ def _blender_3d_preview_payload(req: Blender3DJobRequest) -> dict[str, Any]:
                 duration_sec=req.duration_sec,
                 theme=req.theme,
                 include_captions=req.include_captions,
+                include_hero_voice=req.include_hero_voice,
+                hero_voice_id=req.hero_voice_id,
+                voice_timing_mode=req.voice_timing_mode,
             )
         )
     except ValueError as exc:
@@ -276,6 +283,9 @@ def api_enqueue_blender_3d(req: Blender3DJobRequest) -> dict[str, Any]:
             "duration_sec": req.duration_sec,
             "theme": req.theme,
             "include_captions": req.include_captions,
+            "include_hero_voice": req.include_hero_voice,
+            "hero_voice_id": req.hero_voice_id,
+            "voice_timing_mode": req.voice_timing_mode,
             "project_id": req.project_id,
         },
     )
