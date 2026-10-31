@@ -1,0 +1,95 @@
+# syntax=docker/dockerfile:1
+#
+# Backend-only production image for Koyeb/another Docker host.
+# The React frontend is deployed separately (Vercel root directory: frontend).
+#
+# Piper strategy: do NOT commit the two 63 MB ONNX files to Git.  This
+# dedicated stage downloads Joe (male) and Amy (female) during the image
+# build, verifies their SHA-256 digests, and bakes the verified pair into the
+# final image.  Runtime synthesis itself stays local inside the container and
+# uses no hosted/paid TTS API.
+
+FROM debian:bookworm-slim AS piper-models
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG PIPER_VOICES_BASE=https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US
+WORKDIR /models/piper-onnx-custom-voice
+RUN set -eu; \
+    curl -fsSL --retry 3 "${PIPER_VOICES_BASE}/joe/medium/en_US-joe-medium.onnx?download=true" -o en_US-joe-medium.onnx; \
+    curl -fsSL --retry 3 "${PIPER_VOICES_BASE}/joe/medium/en_US-joe-medium.onnx.json?download=true" -o en_US-joe-medium.onnx.json; \
+    curl -fsSL --retry 3 "${PIPER_VOICES_BASE}/joe/medium/MODEL_CARD?download=true" -o en_US-joe-medium.MODEL_CARD; \
+    curl -fsSL --retry 3 "${PIPER_VOICES_BASE}/amy/medium/en_US-amy-medium.onnx?download=true" -o en_US-amy-medium.onnx; \
+    curl -fsSL --retry 3 "${PIPER_VOICES_BASE}/amy/medium/en_US-amy-medium.onnx.json?download=true" -o en_US-amy-medium.onnx.json; \
+    curl -fsSL --retry 3 "${PIPER_VOICES_BASE}/amy/medium/MODEL_CARD?download=true" -o en_US-amy-medium.MODEL_CARD; \
+    printf '%s  %s\n' \
+      '58afce0321b8d9c46d7cdf9c16500cc55a793b4220212dba6b70fb788b3baf06' \
+      'en_US-joe-medium.onnx' | sha256sum -c -; \
+    printf '%s  %s\n' \
+      'b3a6e47b57b8c7fbe6a0ce2518161a50f59a9cdd8a50835c02cb02bdd6206c18' \
+      'en_US-amy-medium.onnx' | sha256sum -c -
+
+# Pinned HyperFrames CLI. Only the Node executable and installed CLI are
+# copied into the Python runtime image.
+FROM node:22-bookworm-slim AS hyperframes-runtime
+WORKDIR /opt/hyperframes-runtime
+RUN npm init -y >/dev/null 2>&1 \
+    && npm install --omit=dev --no-audit --no-fund hyperframes@0.8.220
+
+FROM python:3.11-slim-bookworm AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PORT=8000 \
+    SIDD_HOST=0.0.0.0 \
+    SIDD_WORKSPACE_DIR=/tmp/sidd-workspace \
+    SIDD_MODELS_DIR=/opt/sidd-models \
+    SIDD_DATABASE_PATH=/tmp/sidd-workspace/sidd_studio.db \
+    SIDD_LOG_DIR=/tmp/sidd-logs \
+    SIDD_LOCAL_ONLY_DEFAULT=false \
+    SIDD_ALLOW_MODEL_DOWNLOADS=false \
+    SIDD_MAX_CONCURRENT_JOBS=1 \
+    SIDD_HYPERFRAMES_BIN=/opt/hyperframes-runtime/node_modules/.bin/hyperframes \
+    SIDD_HYPERFRAMES_BROWSER_PATH=/usr/local/bin/chromium-render \
+    HYPERFRAMES_BROWSER_PATH=/usr/local/bin/chromium-render \
+    HYPERFRAMES_TELEMETRY_DISABLED=1
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        chromium \
+        ffmpeg \
+        fonts-dejavu-core \
+        fonts-liberation \
+        fonts-noto-core \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=hyperframes-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=hyperframes-runtime /opt/hyperframes-runtime /opt/hyperframes-runtime
+COPY --from=piper-models /models /opt/sidd-models
+
+RUN printf '#!/bin/sh\nexec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage "$@"\n' \
+        > /usr/local/bin/chromium-render \
+    && chmod +x /usr/local/bin/chromium-render \
+    && mkdir -p /tmp/sidd-workspace /tmp/sidd-logs
+
+WORKDIR /app
+
+COPY requirements.backend.txt ./
+RUN pip install --upgrade pip \
+    && pip install -r requirements.backend.txt
+
+COPY . .
+
+# The frontend is a separate Vercel deployment. Do not bake a local dist or
+# node_modules into the backend image even if a build context contains them.
+RUN rm -rf frontend/dist frontend/node_modules
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD-SHELL python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.getenv('PORT', '8000') + '/api/health', timeout=4).read()"
+
+CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

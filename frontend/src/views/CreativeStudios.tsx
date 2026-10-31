@@ -10,7 +10,7 @@ import {
   Mountain,
   Check,
 } from 'lucide-react';
-import { api, basenameFromPath } from '../api';
+import { api, apiUrl, basenameFromPath } from '../api';
 import { CharacterProfile, ProjectSummary, SceneItem } from '../types';
 
 /* ==================== CHARACTER STUDIO ==================== */
@@ -121,7 +121,7 @@ export const CharacterStudioView: React.FC<{
         {characters.map((ch) => {
           const previewFile = basenameFromPath(ch.preview_image_path);
           const previewUrl = previewFile
-            ? `/api/media/preview/characters/${previewFile}?v=${encodeURIComponent(ch.name + ch.active_outfit)}`
+            ? apiUrl(`/api/media/preview/characters/${previewFile}?v=${encodeURIComponent(ch.name + ch.active_outfit)}`)
             : '';
 
           return (
@@ -350,7 +350,7 @@ export const VoiceStudioView: React.FC<{
 
           {previewResult && (
             <div className="space-y-3 rounded-lg border border-slate-800 bg-[#0c101a] p-4 text-xs">
-              <audio src={previewResult.audio_url} controls autoPlay className="w-full h-9" />
+              <audio src={apiUrl(previewResult.audio_url)} controls autoPlay className="w-full h-9" />
               <div className="text-slate-400">
                 Engine: <strong className="text-amber-300">{previewResult.engine_used}</strong> • Detected Language:{' '}
                 <strong className="text-white uppercase">{previewResult.language}</strong> • Duration:{' '}
@@ -434,7 +434,7 @@ export const EnvironmentStudioView: React.FC<{
       weather,
       project_id: project?.id || null,
     });
-    setPreviewUrl(res.expected_preview_url);
+    setPreviewUrl(apiUrl(res.expected_preview_url));
     onNotify(`Queued Blender 3D environment preview for '${envId}' (${tod}, ${weather}). Check Render Queue or wait ~3s.`);
   };
 

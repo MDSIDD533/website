@@ -1,5 +1,28 @@
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
+const configuredApiBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '');
+const configuredWsBase = (import.meta.env.VITE_WS_URL || '').trim().replace(/\/+$/, '');
+
+export const API_BASE_URL = configuredApiBase;
+
+export function apiUrl(path: string): string {
+  if (!path) return API_BASE_URL || path;
+  if (/^(?:https?:)?\/\//i.test(path) || path.startsWith('data:') || path.startsWith('blob:')) {
+    return path;
+  }
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return API_BASE_URL ? `${API_BASE_URL}${normalizedPath}` : normalizedPath;
+}
+
+function jobsWebSocketUrl(): string {
+  if (configuredWsBase) return configuredWsBase;
+  if (API_BASE_URL) {
+    return `${API_BASE_URL.replace(/^http:/i, 'ws:').replace(/^https:/i, 'wss:')}/ws/jobs`;
+  }
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}/ws/jobs`;
+}
+
 async function handleResp<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = `HTTP ${res.status}`;
@@ -16,23 +39,23 @@ async function handleResp<T>(res: Response): Promise<T> {
 }
 
 export const api = {
-  get: <T = any>(path: string) => fetch(path).then((r) => handleResp<T>(r)),
+  get: <T = any>(path: string) => fetch(apiUrl(path)).then((r) => handleResp<T>(r)),
   post: <T = any>(path: string, body?: unknown) =>
-    fetch(path, {
+    fetch(apiUrl(path), {
       method: 'POST',
       headers: JSON_HEADERS,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }).then((r) => handleResp<T>(r)),
   patch: <T = any>(path: string, body: unknown) =>
-    fetch(path, {
+    fetch(apiUrl(path), {
       method: 'PATCH',
       headers: JSON_HEADERS,
       body: JSON.stringify(body),
     }).then((r) => handleResp<T>(r)),
   del: <T = any>(path: string) =>
-    fetch(path, { method: 'DELETE' }).then((r) => handleResp<T>(r)),
+    fetch(apiUrl(path), { method: 'DELETE' }).then((r) => handleResp<T>(r)),
   uploadForm: <T = any>(path: string, form: FormData) =>
-    fetch(path, { method: 'POST', body: form }).then((r) => handleResp<T>(r)),
+    fetch(apiUrl(path), { method: 'POST', body: form }).then((r) => handleResp<T>(r)),
 };
 
 export function createJobsWebSocket(onEvent: (data: any) => void, onStatus: (connected: boolean) => void) {
@@ -42,9 +65,7 @@ export function createJobsWebSocket(onEvent: (data: any) => void, onStatus: (con
 
   const connect = () => {
     if (closedByApp) return;
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${window.location.host}/ws/jobs`;
-    ws = new WebSocket(url);
+    ws = new WebSocket(jobsWebSocketUrl());
     ws.onopen = () => onStatus(true);
     ws.onmessage = (ev) => {
       try {

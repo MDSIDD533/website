@@ -13,7 +13,7 @@ import {
   AlertCircle,
   Film,
 } from 'lucide-react';
-import { api, basenameFromPath } from '../api';
+import { api, apiUrl, basenameFromPath } from '../api';
 import { NavSection, ProjectSummary, SceneItem } from '../types';
 
 interface ScriptEditorProps {
@@ -332,10 +332,10 @@ export const StoryboardView: React.FC<StoryboardViewProps> = ({
           {scenes.map((sc) => {
             const thumbName = basenameFromPath(sc.thumbnail_path);
             const thumbUrl = thumbName
-              ? `/api/media/project/${project.id}/thumbnails/${thumbName}?t=${encodeURIComponent(sc.updated_at || '')}`
+              ? apiUrl(`/api/media/project/${project.id}/thumbnails/${thumbName}?t=${encodeURIComponent(sc.updated_at || '')}`)
               : '';
             const clipName = basenameFromPath(sc.rendered_video_path);
-            const clipUrl = clipName ? `/api/media/project/${project.id}/renders/${clipName}` : '';
+            const clipUrl = clipName ? apiUrl(`/api/media/project/${project.id}/renders/${clipName}`) : '';
             const isEditing = editingSceneId === sc.id;
 
             return (

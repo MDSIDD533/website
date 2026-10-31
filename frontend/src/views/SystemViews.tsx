@@ -12,7 +12,7 @@ import {
   Lock,
   Scale,
 } from 'lucide-react';
-import { api } from '../api';
+import { api, apiUrl } from '../api';
 import { ModelItem, ProjectSummary } from '../types';
 
 /* ==================== AI MODEL MANAGER ==================== */
@@ -616,7 +616,7 @@ export const ProjectSettingsView: React.FC<{
             </h3>
             {project && (
               <a
-                href={`/api/projects/${project.id}/manifest`}
+                href={apiUrl(`/api/projects/${project.id}/manifest`)}
                 target="_blank"
                 rel="noreferrer"
                 className="text-amber-300 hover:underline"

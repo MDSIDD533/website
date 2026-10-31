@@ -17,7 +17,7 @@ import {
   Volume2,
   XCircle,
 } from 'lucide-react';
-import { api } from '../api';
+import { api, apiUrl } from '../api';
 import {
   JobItem,
   MotionAutoPreview,
@@ -568,7 +568,7 @@ export const MotionStudioView: React.FC<{
                 {motionJobs.map((job) => {
                   const expanded = expandedJobId === job.id;
                   const videoUrl = job.output_paths?.video
-                    ? `/api/jobs/${job.id}/artifacts/video?v=${encodeURIComponent(job.updated_at || '')}`
+                    ? apiUrl(`/api/jobs/${job.id}/artifacts/video?v=${encodeURIComponent(job.updated_at || '')}`)
                     : '';
                   const preferredArtifactKeys = [
                     'auto_plan_json',
@@ -655,7 +655,7 @@ export const MotionStudioView: React.FC<{
                               <video src={videoUrl} controls className="aspect-video w-full rounded-lg bg-black" />
                               <div className="flex flex-wrap items-center gap-2">
                                 <a
-                                  href={`/api/jobs/${job.id}/artifacts/video`}
+                                  href={apiUrl(`/api/jobs/${job.id}/artifacts/video`)}
                                   download={`${job.id}-motion-video.mp4`}
                                   className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-2 text-[11px] font-black text-slate-950 hover:bg-emerald-400"
                                 >
@@ -774,7 +774,7 @@ export const MotionStudioView: React.FC<{
                               {artifactKeys.map((key) => (
                                 <a
                                   key={key}
-                                  href={`/api/jobs/${job.id}/artifacts/${key}`}
+                                  href={apiUrl(`/api/jobs/${job.id}/artifacts/${key}`)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:bg-slate-800"

@@ -16,7 +16,7 @@ import {
   Loader2,
   XCircle,
 } from 'lucide-react';
-import { api, basenameFromPath } from '../api';
+import { api, apiUrl, basenameFromPath } from '../api';
 import { JobItem, NavSection, ProjectSummary } from '../types';
 
 interface DashboardProps {
@@ -201,7 +201,7 @@ export const DashboardView: React.FC<DashboardProps> = ({
             {projects.map((p) => {
               const isSelected = activeProject?.id === p.id;
               const thumbName = basenameFromPath(p.cover_thumbnail_path);
-              const thumbUrl = thumbName ? `/api/media/project/${p.id}/thumbnails/${thumbName}` : '';
+              const thumbUrl = thumbName ? apiUrl(`/api/media/project/${p.id}/thumbnails/${thumbName}`) : '';
               return (
                 <div
                   key={p.id}

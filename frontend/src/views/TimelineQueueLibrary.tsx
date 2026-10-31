@@ -15,7 +15,7 @@ import {
   Square,
   FileText,
 } from 'lucide-react';
-import { api, basenameFromPath } from '../api';
+import { api, apiUrl, basenameFromPath } from '../api';
 import { JobItem, NavSection, ProjectSummary, SceneItem } from '../types';
 
 /* ==================== SCENE TIMELINE ==================== */
@@ -110,7 +110,7 @@ export const SceneTimelineView: React.FC<{
           {scenes.map((sc, idx) => {
             const isSel = selectedIds.includes(sc.id);
             const clipFile = basenameFromPath(sc.rendered_video_path);
-            const clipUrl = clipFile ? `/api/media/project/${project.id}/renders/${clipFile}` : '';
+            const clipUrl = clipFile ? apiUrl(`/api/media/project/${project.id}/renders/${clipFile}`) : '';
             return (
               <div
                 key={sc.id}

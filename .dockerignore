@@ -6,12 +6,14 @@ __pycache__
 **/__pycache__
 *.py[cod]
 
-# Local/generated data must never be baked into the Render image.
+# Local/generated data must never be baked into a production image.
+# Piper ONNX files are downloaded and SHA-256-verified by Dockerfile.backend.
 workspace_data
 models_data
 logs
 downloaded
 dollar-reserve-currency/renders
+dollar-reserve-currency/assets/audio
 frontend/node_modules
 frontend/dist
 frontend/tsconfig.tsbuildinfo
