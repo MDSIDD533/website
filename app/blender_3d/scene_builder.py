@@ -498,6 +498,7 @@ class SceneFactory:
         self.collection.objects.link(camera)
         camera.location = positions[0][1]
         camera["sidd_camera_move"] = self.request.camera_move
+        camera["sidd_shot_style"] = str(getattr(self.request, "shot_style", "continuous") or "continuous")
         camera["sidd_camera_style"] = (
             "smooth aerial drone path with Cycles depth of field"
             if self.request.camera_move == "drone"
@@ -1335,6 +1336,7 @@ class SceneFactory:
         stream crossing toward a pale dawn beyond the ridge.
         """
 
+        shot_style = str(getattr(self.request, "shot_style", "continuous") or "continuous")
         self.setup_world_and_lights(
             world_strength=0.10,
             sun_energy=0.85,
@@ -1673,6 +1675,52 @@ class SceneFactory:
             wire_mat,
         )
 
+        if shot_style in {"enemy_pov", "ambush_action"}:
+            # Foreground ambush silhouettes for the cutaway/action shots.
+            # They are intentionally simple, helmeted and crouched: their job
+            # is to frame the muzzle flashes without becoming facial close-ups
+            # or competing with the detailed rear-view hero.
+            def enemy_silhouette(name: str, x: float, y: float, heading: float, phase: float) -> None:
+                z = ground_z(x, y)
+                root = self.empty(name, (x, y, z), (0, 0, heading))
+                root.scale = (1.12, 1.12, 1.02)
+                self.box(f"{name}Torso", (0, 0, 0.72), (0.34, 0.5, 0.54), camo_dark, (0, math.radians(-7), 0), root)
+                self.sphere(f"{name}Head", (0.03, 0, 1.12), (0.24, 0.24, 0.25), camo_dark, parent=root)
+                self.sphere(f"{name}Helmet", (0.01, 0, 1.24), (0.31, 0.33, 0.15), camo, parent=root)
+                self.box(f"{name}Pack", (-0.23, 0, 0.78), (0.14, 0.34, 0.4), camo, parent=root)
+                for side, sign in (("L", 1), ("R", -1)):
+                    self.box(
+                        f"{name}Leg{side}",
+                        (-0.02, 0.14 * sign, 0.28),
+                        (0.17, 0.17, 0.55),
+                        camo_dark,
+                        (0, math.radians(9 * sign), 0),
+                        root,
+                    )
+                    self.box(
+                        f"{name}Arm{side}",
+                        (0.18, 0.26 * sign, 0.86),
+                        (0.42, 0.13, 0.14),
+                        camo_dark,
+                        (0, math.radians(-72), 0),
+                        root,
+                    )
+                gun = self.empty(f"{name}Rifle", (0.28, -0.16, 0.9), parent=root)
+                self.box(f"{name}RifleBody", (0.22, 0, 0), (0.72, 0.07, 0.1), self.M["dark"], parent=gun)
+                self.cylinder(
+                    f"{name}RifleBarrel",
+                    (0.66, 0, 0.02),
+                    (0.04, 0.04, 0.42),
+                    self.M["black"],
+                    (0, math.radians(90), 0),
+                    gun,
+                )
+                self.oscillate_rotation(root, 0, 0.018, 2.7, phase)
+
+            enemy_silhouette("EnemyCampLookout", camp_x + 2.8, camp_y - 2.5, 0.62, 0.0)
+            enemy_silhouette("EnemyCampRifleman", camp_x + 4.1, camp_y - 0.6, 0.86, 1.7)
+            enemy_silhouette("EnemySandbagRifleman", sandbag_x - 0.3, sandbag_y - 0.4, 2.45, 3.1)
+
         # Rain concentrated along the hero corridor, where the close camera
         # can actually see it passing through the rim light.
         survivor_rain_streaks = max(8, int(round(26 * float(self.render_profile.get("rain_density_scale", 1.0) or 1.0))))
@@ -1697,8 +1745,26 @@ class SceneFactory:
             )
             self.set_cycles(rain_root)
 
-        # Distant contact timed broadly to the middle spoken lines.  All
-        # flashes stay ahead/side of the hero; he continues walking through.
+        # Distant contact timed to each shot's story beat.  In the continuous
+        # version this remains the original middle-section timing; separate
+        # movie shots move the same flashes/tracers so the cutaway and final
+        # ambush do not merely reuse an identical action envelope.
+        contact_start = {
+            "wide_hero": 0.72,
+            "enemy_pov": 0.24,
+            "hero_back_close": 0.56,
+            "ambush_action": 0.10,
+        }.get(shot_style, 0.48)
+        contact_pulses = 11 if shot_style == "ambush_action" else 6 if shot_style == "enemy_pov" else 4
+        contact_spacing = 0.062 if shot_style == "ambush_action" else 0.045
+        blast_fraction = {
+            "wide_hero": 0.82,
+            "enemy_pov": 0.62,
+            "hero_back_close": 0.72,
+            "ambush_action": 0.30,
+        }.get(shot_style, 0.67)
+        tracer_start = max(0.04, min(0.77, contact_start + 0.026))
+
         def burst(name: str, loc, start_fraction: float, scale: float = 1.0) -> None:
             parts = [
                 self.sphere(f"{name}Core", (loc[0], loc[1], loc[2] + 0.5), (0.08, 0.08, 0.08), self.M["fire"]),
@@ -1724,7 +1790,9 @@ class SceneFactory:
                     ],
                 )
 
-        burst("SurvivorDistantBlast", (camp_x + 1.0, camp_y + 4.0, camp_z), 0.67, 0.95)
+        burst("SurvivorDistantBlast", (camp_x + 1.0, camp_y + 4.0, camp_z), blast_fraction, 0.95)
+        if shot_style == "ambush_action":
+            burst("SurvivorAmbushBlast", (sandbag_x - 1.0, sandbag_y + 2.0, sandbag_z), 0.72, 1.12)
         for index, (side, flash_y) in enumerate(((-1, 12.0), (1, 14.0), (-1, 16.0), (1, 18.0))):
             flash_x = trail_x(flash_y) + side * 8.5
             flash_z = ground_z(flash_x, flash_y) + 1.25
@@ -1736,8 +1804,8 @@ class SceneFactory:
                 (0, math.radians(-90 if side < 0 else 90), 0),
             )
             pairs: list[tuple[float, tuple[float, float, float]]] = [(0.0, (0.07, 0.07, 0.07))]
-            for pulse in range(4):
-                start = 0.48 + index * 0.018 + pulse * 0.045
+            for pulse in range(contact_pulses):
+                start = contact_start + index * 0.018 + pulse * contact_spacing
                 pairs.extend(
                     [
                         (self.at(start), (0.07, 0.07, 0.07)),
@@ -1759,10 +1827,10 @@ class SceneFactory:
                 "scale",
                 [
                     (0.0, (0.02, 0.02, 0.02)),
-                    (self.at(0.5), (0.02, 0.02, 0.02)),
-                    (self.at(0.506), (1.15, 0.05, 0.05)),
-                    (self.at(0.69), (1.15, 0.05, 0.05)),
-                    (self.at(0.696), (0.02, 0.02, 0.02)),
+                    (self.at(max(0.0, tracer_start - 0.006)), (0.02, 0.02, 0.02)),
+                    (self.at(tracer_start), (1.15, 0.05, 0.05)),
+                    (self.at(min(0.99, tracer_start + 0.184)), (1.15, 0.05, 0.05)),
+                    (self.at(min(0.995, tracer_start + 0.19)), (0.02, 0.02, 0.02)),
                     (self.duration, (0.02, 0.02, 0.02)),
                 ],
             )
@@ -1771,12 +1839,12 @@ class SceneFactory:
                 tracer,
                 "location",
                 [
-                    (self.at(0.506 + delay), (start_x, tracer_y, tracer_z)),
-                    (self.at(0.54 + delay), (end_x, tracer_y + 0.3, tracer_z - 0.15)),
-                    (self.at(0.544 + delay), (start_x, tracer_y, tracer_z)),
-                    (self.at(0.61 + delay), (start_x, tracer_y, tracer_z)),
-                    (self.at(0.644 + delay), (end_x, tracer_y + 0.3, tracer_z - 0.15)),
-                    (self.at(0.69), (start_x, tracer_y, tracer_z)),
+                    (self.at(tracer_start + delay), (start_x, tracer_y, tracer_z)),
+                    (self.at(tracer_start + 0.034 + delay), (end_x, tracer_y + 0.3, tracer_z - 0.15)),
+                    (self.at(tracer_start + 0.038 + delay), (start_x, tracer_y, tracer_z)),
+                    (self.at(tracer_start + 0.104 + delay), (start_x, tracer_y, tracer_z)),
+                    (self.at(tracer_start + 0.138 + delay), (end_x, tracer_y + 0.3, tracer_z - 0.15)),
+                    (self.at(min(0.99, tracer_start + 0.184)), (start_x, tracer_y, tracer_z)),
                 ],
                 "LINEAR",
             )
@@ -1811,12 +1879,39 @@ class SceneFactory:
             end = (start[0] + 28 + index * 2, start[1] + 12, start[2] + 7)
             self.keys(bird, "location", [(self.at(0.47), start), (self.at(0.6), end)], "BEZIER")
 
-        # The one continuous hero path and its locked rear camera.  Every
-        # camera key is behind the corresponding hero key along -Y (the route
-        # runs generally north), with only a small lateral shoulder offset.
-        fractions = (0.0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 0.92, 1.0)
-        hero_ys = (-27.0, -20.0, -14.0, -7.0, 0.0, 7.0, 14.0, 19.0, 24.0)
-        hero_offsets = (-0.3, 0.2, -0.2, 0.35, -0.25, 0.2, -0.1, 0.0, 0.0)
+        # Hero path and camera.  ``continuous`` preserves the approved
+        # one-shot route; the four movie-shot variants each use a shorter
+        # route segment and a deliberately different rear/side composition.
+        # Every authored camera key remains at/behind the hero's south flank,
+        # including the enemy-camp POV, so no shot becomes a frontal face shot.
+        shot_routes = {
+            "wide_hero": (
+                (0.0, 0.25, 0.5, 0.75, 1.0),
+                (-27.0, -23.5, -20.0, -16.5, -13.0),
+                (-0.3, 0.1, -0.15, 0.2, 0.0),
+            ),
+            "enemy_pov": (
+                (0.0, 0.25, 0.5, 0.75, 1.0),
+                (5.0, 7.0, 9.0, 11.0, 13.0),
+                (0.2, -0.2, 0.25, -0.1, 0.0),
+            ),
+            "hero_back_close": (
+                (0.0, 0.25, 0.5, 0.75, 1.0),
+                (2.0, 4.0, 6.0, 8.0, 10.0),
+                (-0.2, 0.15, -0.1, 0.2, 0.0),
+            ),
+            "ambush_action": (
+                (0.0, 0.25, 0.5, 0.75, 1.0),
+                (8.0, 11.0, 14.0, 18.0, 22.0),
+                (0.0, -0.2, 0.25, -0.1, 0.0),
+            ),
+        }
+        if shot_style in shot_routes:
+            fractions, hero_ys, hero_offsets = shot_routes[shot_style]
+        else:
+            fractions = (0.0, 0.14, 0.28, 0.42, 0.56, 0.7, 0.84, 0.92, 1.0)
+            hero_ys = (-27.0, -20.0, -14.0, -7.0, 0.0, 7.0, 14.0, 19.0, 24.0)
+            hero_offsets = (-0.3, 0.2, -0.2, 0.35, -0.25, 0.2, -0.1, 0.0, 0.0)
         hero_locations: list[tuple[float, float, float]] = []
         hero_headings: list[float] = []
         for y, offset in zip(hero_ys, hero_offsets):
@@ -1840,51 +1935,158 @@ class SceneFactory:
         )
         # A brief duck under the distant fire, achieved by lowering only the
         # vertical scale; his feet remain planted on the route.
+        duck_start, duck_low, duck_end = {
+            "wide_hero": (0.70, 0.78, 0.88),
+            "enemy_pov": (0.34, 0.45, 0.58),
+            "hero_back_close": (0.52, 0.62, 0.73),
+            "ambush_action": (0.12, 0.20, 0.35),
+        }.get(shot_style, (0.46, 0.52, 0.59))
+        duck_depth = 0.82 if shot_style == "ambush_action" else 0.86
         self.keys(
             hero,
             "scale",
             [
-                (self.at(0.46), (hero_scale, hero_scale, hero_scale)),
-                (self.at(0.52), (hero_scale, hero_scale, hero_scale * 0.86)),
-                (self.at(0.59), (hero_scale, hero_scale, hero_scale)),
+                (self.at(duck_start), (hero_scale, hero_scale, hero_scale)),
+                (self.at(duck_low), (hero_scale, hero_scale, hero_scale * duck_depth)),
+                (self.at(duck_end), (hero_scale, hero_scale, hero_scale)),
                 (self.duration, (hero_scale, hero_scale, hero_scale)),
             ],
             "BEZIER",
         )
 
-        camera_offsets = (-1.2, -0.9, 0.75, 1.0, -0.9, -0.65, 0.65, 0.25, 0.0)
-        camera_distances = (7.8, 7.2, 6.9, 7.2, 7.6, 8.2, 8.8, 9.3, 10.2)
-        camera_heights = (2.1, 1.95, 1.9, 2.0, 2.1, 2.3, 2.55, 2.65, 2.75)
         camera_positions: list[tuple[float, tuple[float, float, float]]] = []
         camera_targets: list[tuple[float, tuple[float, float, float]]] = []
         focus_pairs: list[tuple[float, float]] = []
-        for fraction, hero_loc, y, offset, distance, height in zip(
-            fractions,
-            hero_locations,
-            hero_ys,
-            camera_offsets,
-            camera_distances,
-            camera_heights,
-        ):
-            cam_x = hero_loc[0] + offset
-            cam_y = hero_loc[1] - distance
-            cam_pos = (cam_x, cam_y, ground_z(cam_x, cam_y) + height)
+
+        def add_camera_key(
+            fraction: float,
+            cam_pos: tuple[float, float, float],
+            hero_loc: tuple[float, float, float],
+            y: float,
+            *,
+            forward_distance: float = 1.7,
+            target_height: float = 1.42,
+        ) -> None:
             forward_x = trail_dx_dy(y)
             forward_len = math.hypot(forward_x, 1.0)
             target = (
-                hero_loc[0] + (forward_x / forward_len) * 1.7,
-                hero_loc[1] + (1.0 / forward_len) * 1.7,
-                hero_loc[2] + 1.42,
+                hero_loc[0] + (forward_x / forward_len) * forward_distance,
+                hero_loc[1] + (1.0 / forward_len) * forward_distance,
+                hero_loc[2] + target_height,
             )
             camera_positions.append((fraction, cam_pos))
             camera_targets.append((fraction, target))
-            focus_pairs.append((fraction, max(2.5, math.dist(cam_pos, hero_loc) * 0.96)))
+            focus_pairs.append((fraction, max(1.2, math.dist(cam_pos, hero_loc) * 0.96)))
+
+        def add_tracking_keys(
+            offsets: tuple[float, ...],
+            distances: tuple[float, ...],
+            heights: tuple[float, ...],
+            *,
+            forward_distance: float = 1.7,
+            target_height: float = 1.42,
+        ) -> None:
+            for fraction, hero_loc, y, offset, distance, height in zip(
+                fractions,
+                hero_locations,
+                hero_ys,
+                offsets,
+                distances,
+                heights,
+            ):
+                cam_x = hero_loc[0] + offset
+                cam_y = hero_loc[1] - distance
+                add_camera_key(
+                    fraction,
+                    (cam_x, cam_y, ground_z(cam_x, cam_y) + height),
+                    hero_loc,
+                    y,
+                    forward_distance=forward_distance,
+                    target_height=target_height,
+                )
+
+        if shot_style == "wide_hero":
+            # Establishing wide: the hero is small against the wreck/radio,
+            # memorial corridor and layered jungle, then the shot slowly
+            # pushes in without becoming the later close-up.
+            add_tracking_keys(
+                (-2.0, -1.2, -0.3, 0.8, 1.5),
+                (14.0, 13.0, 12.0, 11.0, 10.5),
+                (4.2, 3.9, 3.6, 3.3, 3.0),
+                forward_distance=2.0,
+                target_height=1.3,
+            )
+            lens_pairs = [(0.0, 35), (0.5, 38), (1.0, 40)]
+            camera_fstop = 4.0
+        elif shot_style == "enemy_pov":
+            # Camp POV from the southwest perimeter: a slow telephoto pan
+            # watches the hero enter the trap from his rear-left.  The camera
+            # stays south/west of him, so this reads as enemy observation
+            # without revealing his face.
+            camp_camera_points = (
+                (camp_x + 0.2, camp_y - 3.9, 1.55),
+                (camp_x + 0.35, camp_y - 3.6, 1.58),
+                (camp_x + 0.5, camp_y - 3.3, 1.62),
+                (camp_x + 0.65, camp_y - 3.0, 1.66),
+                (camp_x + 0.8, camp_y - 2.7, 1.7),
+            )
+            for fraction, hero_loc, y, (cam_x, cam_y, height) in zip(
+                fractions,
+                hero_locations,
+                hero_ys,
+                camp_camera_points,
+            ):
+                add_camera_key(
+                    fraction,
+                    (cam_x, cam_y, ground_z(cam_x, cam_y) + height),
+                    hero_loc,
+                    y,
+                    forward_distance=0.7,
+                    target_height=1.0,
+                )
+            lens_pairs = [(0.0, 52), (0.5, 64), (1.0, 74)]
+            camera_fstop = 2.0
+        elif shot_style == "hero_back_close":
+            # Tight over-shoulder/back close-up: helmet, wet poncho, radio
+            # pack and slung rifle fill the frame while the trail ahead stays
+            # visible over him.  The camera never swings to the front.
+            add_tracking_keys(
+                (-0.2, -0.15, -0.1, -0.05, 0.0),
+                (3.6, 3.4, 3.2, 3.05, 2.9),
+                (1.58, 1.56, 1.55, 1.53, 1.5),
+                forward_distance=0.75,
+                target_height=1.22,
+            )
+            lens_pairs = [(0.0, 56), (0.5, 60), (1.0, 62)]
+            camera_fstop = 1.8
+        elif shot_style == "ambush_action":
+            # Final action coverage: faster-feeling lateral swings around the
+            # rear flank, push-in under the tracers, then a pull-back as he
+            # reaches the stream/bridge line.
+            add_tracking_keys(
+                (-2.0, 1.8, -2.4, 1.5, 0.0),
+                (8.0, 6.4, 5.4, 7.0, 9.5),
+                (1.7, 1.45, 1.65, 2.2, 2.7),
+                forward_distance=2.0,
+                target_height=1.38,
+            )
+            lens_pairs = [(0.0, 42), (0.25, 52), (0.5, 46), (0.75, 55), (1.0, 38)]
+            camera_fstop = 2.8
+        else:
+            add_tracking_keys(
+                (-1.2, -0.9, 0.75, 1.0, -0.9, -0.65, 0.65, 0.25, 0.0),
+                (7.8, 7.2, 6.9, 7.2, 7.6, 8.2, 8.8, 9.3, 10.2),
+                (2.1, 1.95, 1.9, 2.0, 2.1, 2.3, 2.55, 2.65, 2.75),
+            )
+            lens_pairs = [(0.0, 46), (0.28, 49), (0.56, 47), (0.84, 45), (1.0, 43)]
+            camera_fstop = 2.2
+
         self.setup_camera(
             camera_positions,
             camera_targets,
-            [(0.0, 46), (0.28, 49), (0.56, 47), (0.84, 45), (1.0, 43)],
+            lens_pairs,
             focus_pairs=focus_pairs,
-            fstop=2.2,
+            fstop=camera_fstop,
         )
 
     def build_jungle_war(self) -> None:
@@ -2669,6 +2871,7 @@ class SceneFactory:
             "engine": "CYCLES",
             "device": "CPU",
             "camera_move": self.request.camera_move,
+            "shot_style": str(getattr(self.request, "shot_style", "continuous") or "continuous"),
             "camera_depth_of_field": {
                 "enabled": bool(getattr(camera_dof, "use_dof", False)),
                 "fstop": float(getattr(camera_dof, "aperture_fstop", 0.0) or 0.0),

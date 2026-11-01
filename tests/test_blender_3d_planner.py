@@ -131,6 +131,44 @@ def test_last_survivor_extracts_hero_lines_and_forces_rear_camera() -> None:
     assert plan.to_dict()["hero_dialogue"][0]["source"] == "script_label"
 
 
+@pytest.mark.parametrize(
+    "shot_style",
+    ["wide_hero", "enemy_pov", "hero_back_close", "ambush_action"],
+)
+def test_last_survivor_movie_shot_styles_are_preserved(shot_style: str) -> None:
+    plan = plan_blender_3d(
+        LAST_SURVIVOR_SCRIPT,
+        {
+            "duration_sec": 15,
+            "quality": "ultra_fast",
+            "shot_style": shot_style,
+            "include_hero_voice": False,
+            "include_captions": False,
+        },
+    )
+
+    assert plan.topic.theme == "last_survivor"
+    assert plan.request.camera_move == "hero_tracking"
+    assert plan.request.shot_style == shot_style
+    assert plan.to_dict()["request"]["shot_style"] == shot_style
+    assert plan.to_dict()["total_frames"] == 225
+    assert any(shot_style in warning for warning in plan.warnings)
+
+
+def test_shot_style_is_reset_for_other_themes_and_invalid_values_fail() -> None:
+    plan = plan_blender_3d(
+        "A ship sailed toward an island lighthouse across ocean waves.",
+        {"shot_style": "wide_hero"},
+    )
+
+    assert plan.topic.theme == "ocean_voyage"
+    assert plan.request.shot_style == "continuous"
+    assert any("only for The Last Survivor" in warning for warning in plan.warnings)
+
+    with pytest.raises(ValueError, match="Unsupported shot_style"):
+        Blender3DRequest.from_dict({"shot_style": "front_face_closeup"})
+
+
 def test_current_parser_shape_and_fort_default_do_not_crash() -> None:
     plan = plan_blender_3d("Bilal qile mein aata hai. Zara mash'al jalati hai.", {})
 

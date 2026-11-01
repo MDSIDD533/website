@@ -1,0 +1,12 @@
+Title: The Last Survivor (Jungle War) — Four-Shot Movie Cut
+
+Production direction: Four separately rendered 15-second Blender shots at 1280x720/15fps with the Ultra Fast profile, joined by FFmpeg into one 60-second film. Shot 1 is a wide rear establishing shot of the lone hero walking past wreckage and memorials. Shot 2 cuts to a telephoto enemy-camp POV from behind crouched enemy silhouettes, watching the hero from his rear-left. Shot 3 is a tight camera behind the hero's helmet, wet poncho, radio pack and slung rifle. Shot 4 is the ambush/action shot with muzzle flashes, tracers, blasts and a pull-back toward the stream. The hero's face is never shown. Piper Joe provides the Hero voice, with locally generated rain, distant gunfire and restrained cinematic music mixed under the dialogue.
+
+HERO: Rain was falling over the broken ridge when my last radio went silent, and in that stillness I understood that my unit was gone.
+HERO: I am the only soldier still standing in this drowned valley, yet every fallen brother marches beside me through the darkness and mud.
+HERO: Somewhere beyond the burnt camp, enemy eyes were searching the trail, waiting for hunger, fear, or one careless sound to betray me.
+HERO: They believed the jungle had swallowed the last of us, but every silent step carried me closer to the place where their trap would fail.
+HERO: I carry their dog tags against my heart, cold as river stones, and every name gives my legs another reason to keep moving forward.
+HERO: My boots are filled with rain, my compass is cracked, and the flooded trail has vanished beneath the water, but I remember the way home.
+HERO: Then the treeline flashed, the rain filled with fire, and I pressed into the mud with their names beating harder than my heart.
+HERO: So before dawn breaks beyond the ridge, I will rise with their courage beside me, carry their names through this jungle, tell their story, and walk out of this war alive.

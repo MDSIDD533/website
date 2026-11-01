@@ -12,6 +12,13 @@ DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 DEFAULT_FPS = 15
 DEFAULT_QUALITY = "ultra_fast"
+LAST_SURVIVOR_SHOT_STYLES = {
+    "continuous",
+    "wide_hero",
+    "enemy_pov",
+    "hero_back_close",
+    "ambush_action",
+}
 QUALITY_PROFILES: dict[str, dict[str, Any]] = {
     # Ultra Fast is the current website default.  On the measured Last
     # Survivor scene it keeps OIDN, but renders only every second timeline
@@ -241,6 +248,7 @@ class Blender3DRequest:
     height: int = DEFAULT_HEIGHT
     quality: str = DEFAULT_QUALITY
     camera_move: str = "drone"
+    shot_style: str = "continuous"
     intensity: float = 1.0
     include_captions: bool = True
     seed: int = 1939
@@ -258,6 +266,11 @@ class Blender3DRequest:
             raise ValueError(f"Unsupported Blender quality profile: {self.quality}")
         if self.camera_move not in {"drone", "cinematic", "orbit", "tracking", "hero_tracking"}:
             raise ValueError(f"Unsupported camera move: {self.camera_move}")
+        if self.shot_style not in LAST_SURVIVOR_SHOT_STYLES:
+            raise ValueError(
+                "Unsupported shot_style: "
+                f"{self.shot_style}. Expected one of {', '.join(sorted(LAST_SURVIVOR_SHOT_STYLES))}"
+            )
         if not (3.0 <= float(self.duration_sec) <= 120.0):
             raise ValueError("duration_sec must be between 3 and 120 seconds")
         if int(self.fps) not in {12, 15, 20, 24, 30}:
@@ -309,6 +322,7 @@ class Blender3DRequest:
             height=int(raw.get("height") or DEFAULT_HEIGHT),
             quality=str(raw.get("quality") or DEFAULT_QUALITY),
             camera_move=str(raw.get("camera_move") or "drone"),
+            shot_style=str(raw.get("shot_style") or "continuous"),
             intensity=float(raw.get("intensity") or 1.0),
             include_captions=bool(raw.get("include_captions", True)),
             seed=int(raw.get("seed") or 1939),
@@ -836,6 +850,17 @@ def plan_blender_3d(
                 f"camera_move '{resolved.camera_move}' was replaced with 'hero_tracking'."
             )
         resolved = replace(resolved, camera_move="hero_tracking")
+        if resolved.shot_style != "continuous":
+            warnings.append(
+                "The Last Survivor shot_style "
+                f"'{resolved.shot_style}' selects a separate multi-shot camera and route segment."
+            )
+    elif resolved.shot_style != "continuous":
+        warnings.append(
+            "shot_style variants are currently authored only for The Last Survivor; "
+            f"'{resolved.shot_style}' was replaced with 'continuous'."
+        )
+        resolved = replace(resolved, shot_style="continuous")
     if resolved.include_hero_voice and not hero_dialogue:
         warnings.append(
             "Hero voice is enabled, but no HERO lines were found. Add lines such as 'HERO: ...' "

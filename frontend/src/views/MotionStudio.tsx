@@ -530,7 +530,7 @@ export const MotionStudioView: React.FC<{
               />
               <p className="mt-1 text-[11px] text-slate-500">
                 Theme, duration, captions, FPS and quality above override matching JSON fields.
-                Leave width/height unset to keep the 1280×720 output default; camera_move defaults to drone.
+                Leave width/height unset to keep the 1280×720 output default; camera_move defaults to drone. For separate Last Survivor movie shots, add "shot_style": "wide_hero", "enemy_pov", "hero_back_close" or "ambush_action".
               </p>
             </div>
           ) : isAuto ? (
@@ -811,7 +811,7 @@ export const MotionStudioView: React.FC<{
                         <div className="font-bold text-slate-200">Render profile</div>
                         <div className="mt-1 font-mono text-[10px] leading-relaxed text-slate-400">
                           {String(preview.request.quality)} · max {String(preview.request.render_profile?.samples ?? '—')} samples
-                          <br />{String(preview.request.fps ?? '—')}fps · {String(preview.request.camera_move ?? 'drone')} camera + DOF
+                          <br />{String(preview.request.fps ?? '—')}fps · {String(preview.request.camera_move ?? 'drone')} camera · {String(preview.request.shot_style ?? 'continuous')} shot + DOF
                           <br />{String(preview.request.render_profile?.denoiser ?? 'OIDN')} · {String(preview.request.render_profile?.denoise_prefilter ?? 'FAST')}
                         </div>
                       </div>

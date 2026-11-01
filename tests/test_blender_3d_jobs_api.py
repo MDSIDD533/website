@@ -142,6 +142,7 @@ def test_blender_preview_selects_last_survivor_with_piper_joe_hero(api_client: T
             "duration_sec": 30,
             "include_hero_voice": True,
             "hero_voice_id": "en_male_heroic",
+            "request": {"shot_style": "enemy_pov"},
         },
     )
 
@@ -150,6 +151,7 @@ def test_blender_preview_selects_last_survivor_with_piper_joe_hero(api_client: T
     assert payload["topic"]["theme"] == "last_survivor"
     assert payload["total_frames"] == 450
     assert payload["request"]["camera_move"] == "hero_tracking"
+    assert payload["request"]["shot_style"] == "enemy_pov"
     assert payload["request"]["include_hero_voice"] is True
     assert payload["request"]["hero_voice_id"] == "en_male_heroic"
     assert len(payload["plan"]["hero_dialogue"]) == 2
