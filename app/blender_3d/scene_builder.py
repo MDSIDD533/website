@@ -1680,10 +1680,18 @@ class SceneFactory:
             # They are intentionally simple, helmeted and crouched: their job
             # is to frame the muzzle flashes without becoming facial close-ups
             # or competing with the detailed rear-view hero.
-            def enemy_silhouette(name: str, x: float, y: float, heading: float, phase: float) -> None:
+            def enemy_silhouette(
+                name: str,
+                x: float,
+                y: float,
+                heading: float,
+                phase: float,
+                *,
+                scale: tuple[float, float, float] = (1.12, 1.12, 1.02),
+            ) -> None:
                 z = ground_z(x, y)
                 root = self.empty(name, (x, y, z), (0, 0, heading))
-                root.scale = (1.12, 1.12, 1.02)
+                root.scale = scale
                 self.box(f"{name}Torso", (0, 0, 0.72), (0.34, 0.5, 0.54), camo_dark, (0, math.radians(-7), 0), root)
                 self.sphere(f"{name}Head", (0.03, 0, 1.12), (0.24, 0.24, 0.25), camo_dark, parent=root)
                 self.sphere(f"{name}Helmet", (0.01, 0, 1.24), (0.31, 0.33, 0.15), camo, parent=root)
@@ -1720,6 +1728,27 @@ class SceneFactory:
             enemy_silhouette("EnemyCampLookout", camp_x + 2.8, camp_y - 2.5, 0.62, 0.0)
             enemy_silhouette("EnemyCampRifleman", camp_x + 4.1, camp_y - 0.6, 0.86, 1.7)
             enemy_silhouette("EnemySandbagRifleman", sandbag_x - 0.3, sandbag_y - 0.4, 2.45, 3.1)
+            if shot_style == "enemy_pov":
+                # The revised enemy-POV shot is authored from inside the camp
+                # rather than as another hero-tracking angle.  These two larger
+                # backs sit on the camera's opening sightline, with the hero
+                # entering the trap as a smaller figure beyond them.
+                enemy_silhouette(
+                    "EnemyForegroundLookout",
+                    camp_x + 1.0,
+                    camp_y - 5.4,
+                    0.72,
+                    0.7,
+                    scale=(1.28, 1.28, 1.14),
+                )
+                enemy_silhouette(
+                    "EnemyForegroundRifleman",
+                    camp_x + 2.2,
+                    camp_y - 3.9,
+                    0.82,
+                    2.4,
+                    scale=(1.24, 1.24, 1.10),
+                )
 
         # Rain concentrated along the hero corridor, where the close camera
         # can actually see it passing through the rim light.
@@ -1887,18 +1916,18 @@ class SceneFactory:
         shot_routes = {
             "wide_hero": (
                 (0.0, 0.25, 0.5, 0.75, 1.0),
-                (-27.0, -23.5, -20.0, -16.5, -13.0),
-                (-0.3, 0.1, -0.15, 0.2, 0.0),
+                (-30.0, -27.0, -24.0, -21.0, -18.0),
+                (-0.25, 0.1, -0.15, 0.2, 0.0),
             ),
             "enemy_pov": (
                 (0.0, 0.25, 0.5, 0.75, 1.0),
-                (5.0, 7.0, 9.0, 11.0, 13.0),
+                (0.0, 2.5, 5.0, 7.5, 10.0),
                 (0.2, -0.2, 0.25, -0.1, 0.0),
             ),
             "hero_back_close": (
-                (0.0, 0.25, 0.5, 0.75, 1.0),
-                (2.0, 4.0, 6.0, 8.0, 10.0),
-                (-0.2, 0.15, -0.1, 0.2, 0.0),
+                (0.0, 0.22, 0.48, 0.74, 1.0),
+                (-6.0, -4.8, -3.6, -2.4, -1.2),
+                (-0.15, 0.1, -0.1, 0.15, 0.0),
             ),
             "ambush_action": (
                 (0.0, 0.25, 0.5, 0.75, 1.0),
@@ -1966,17 +1995,20 @@ class SceneFactory:
             *,
             forward_distance: float = 1.7,
             target_height: float = 1.42,
+            target_override: tuple[float, float, float] | None = None,
+            focus_point: tuple[float, float, float] | None = None,
         ) -> None:
             forward_x = trail_dx_dy(y)
             forward_len = math.hypot(forward_x, 1.0)
-            target = (
+            target = target_override or (
                 hero_loc[0] + (forward_x / forward_len) * forward_distance,
                 hero_loc[1] + (1.0 / forward_len) * forward_distance,
                 hero_loc[2] + target_height,
             )
             camera_positions.append((fraction, cam_pos))
             camera_targets.append((fraction, target))
-            focus_pairs.append((fraction, max(1.2, math.dist(cam_pos, hero_loc) * 0.96)))
+            focus_reference = focus_point or hero_loc
+            focus_pairs.append((fraction, max(1.2, math.dist(cam_pos, focus_reference) * 0.96)))
 
         def add_tracking_keys(
             offsets: tuple[float, ...],
@@ -2006,71 +2038,106 @@ class SceneFactory:
                 )
 
         if shot_style == "wide_hero":
-            # Establishing wide: the hero is small against the wreck/radio,
-            # memorial corridor and layered jungle, then the shot slowly
-            # pushes in without becoming the later close-up.
+            # Establishing lateral wide: the camera travels on the hero's
+            # right-rear flank rather than behind him, so the audience sees a
+            # walking profile cross the wreck/radio geography.  This is a
+            # different shot grammar from the continuous rear-tracking route:
+            # the jungle and wreck move laterally through the frame while the
+            # hero remains a small figure inside the environment.
             add_tracking_keys(
-                (-2.0, -1.2, -0.3, 0.8, 1.5),
-                (14.0, 13.0, 12.0, 11.0, 10.5),
-                (4.2, 3.9, 3.6, 3.3, 3.0),
-                forward_distance=2.0,
-                target_height=1.3,
+                (7.8, 7.4, 7.0, 6.6, 6.2),
+                (2.4, 2.1, 1.8, 1.6, 1.4),
+                (3.2, 3.0, 2.8, 2.6, 2.4),
+                forward_distance=0.4,
+                target_height=1.15,
             )
-            lens_pairs = [(0.0, 35), (0.5, 38), (1.0, 40)]
+            lens_pairs = [(0.0, 30), (0.5, 32), (1.0, 34)]
             camera_fstop = 4.0
         elif shot_style == "enemy_pov":
-            # Camp POV from the southwest perimeter: a slow telephoto pan
-            # watches the hero enter the trap from his rear-left.  The camera
-            # stays south/west of him, so this reads as enemy observation
-            # without revealing his face.
+            # True enemy-camp cutaway: the subject changes from the hero to
+            # the ambush position itself.  The camera is anchored at the
+            # southwest camp perimeter, begins by looking along the foreground
+            # enemy backs/rifles toward the camp rifleman, and only then pans
+            # onto the smaller hero entering the trap beyond them.  The camera
+            # stays south/west of the hero, preserving a side/rear view.
             camp_camera_points = (
-                (camp_x + 0.2, camp_y - 3.9, 1.55),
-                (camp_x + 0.35, camp_y - 3.6, 1.58),
-                (camp_x + 0.5, camp_y - 3.3, 1.62),
-                (camp_x + 0.65, camp_y - 3.0, 1.66),
-                (camp_x + 0.8, camp_y - 2.7, 1.7),
+                (camp_x - 1.5, camp_y - 9.5, 1.45),
+                (camp_x - 1.35, camp_y - 8.9, 1.48),
+                (camp_x - 1.2, camp_y - 8.3, 1.52),
+                (camp_x - 1.05, camp_y - 7.7, 1.55),
+                (camp_x - 0.9, camp_y - 7.1, 1.58),
             )
-            for fraction, hero_loc, y, (cam_x, cam_y, height) in zip(
+            camp_target_overrides = (
+                (camp_x + 4.1, camp_y - 0.6, camp_z + 1.0),
+                (camp_x + 4.7, camp_y - 1.4, camp_z + 1.05),
+                None,
+                None,
+                None,
+            )
+            for fraction, hero_loc, y, (cam_x, cam_y, height), target_override in zip(
                 fractions,
                 hero_locations,
                 hero_ys,
                 camp_camera_points,
+                camp_target_overrides,
             ):
                 add_camera_key(
                     fraction,
                     (cam_x, cam_y, ground_z(cam_x, cam_y) + height),
                     hero_loc,
                     y,
-                    forward_distance=0.7,
-                    target_height=1.0,
+                    forward_distance=0.6,
+                    target_height=1.15,
+                    target_override=target_override,
+                    focus_point=target_override or hero_loc,
                 )
-            lens_pairs = [(0.0, 52), (0.5, 64), (1.0, 74)]
-            camera_fstop = 2.0
+            lens_pairs = [(0.0, 38), (0.5, 48), (1.0, 58)]
+            camera_fstop = 2.4
         elif shot_style == "hero_back_close":
-            # Tight over-shoulder/back close-up: helmet, wet poncho, radio
-            # pack and slung rifle fill the frame while the trail ahead stays
-            # visible over him.  The camera never swings to the front.
+            # Memorial insert: a short, slow route and a deliberate push-in
+            # onto the helmet, wet poncho, radio pack, antenna and slung rifle.
+            # Unlike the wide shot, the camera is locked to the hero's back
+            # and the memorial geography drifts past at the frame edge.
             add_tracking_keys(
-                (-0.2, -0.15, -0.1, -0.05, 0.0),
-                (3.6, 3.4, 3.2, 3.05, 2.9),
-                (1.58, 1.56, 1.55, 1.53, 1.5),
-                forward_distance=0.75,
-                target_height=1.22,
+                (-0.18, -0.14, -0.1, -0.06, -0.02),
+                (4.4, 4.05, 3.7, 3.38, 3.1),
+                (1.72, 1.66, 1.6, 1.55, 1.5),
+                forward_distance=0.18,
+                target_height=1.32,
             )
-            lens_pairs = [(0.0, 56), (0.5, 60), (1.0, 62)]
+            lens_pairs = [(0.0, 60), (0.5, 64), (1.0, 68)]
             camera_fstop = 1.8
         elif shot_style == "ambush_action":
-            # Final action coverage: faster-feeling lateral swings around the
-            # rear flank, push-in under the tracers, then a pull-back as he
-            # reaches the stream/bridge line.
-            add_tracking_keys(
-                (-2.0, 1.8, -2.4, 1.5, 0.0),
-                (8.0, 6.4, 5.4, 7.0, 9.5),
-                (1.7, 1.45, 1.65, 2.2, 2.7),
-                forward_distance=2.0,
-                target_height=1.38,
+            # Opposite-side ambush coverage: after the east-side wide shot,
+            # the finale is planted west/southwest of the trail and pans
+            # northeast across the kill zone toward the sandbag line and
+            # stream.  The hero therefore crosses the frame against the enemy
+            # position instead of receding down the same rear-tracking axis.
+            # These points stay inside the deliberately cleared trail
+            # corridor, avoiding the random foreground trunks that occluded
+            # an earlier east-side test composition.
+            ambush_camera_points = (
+                (trail_x(4.6) - 4.0, 4.6, 1.55),
+                (trail_x(5.9) - 3.9, 5.9, 1.55),
+                (trail_x(7.3) - 3.8, 7.3, 1.6),
+                (trail_x(8.9) - 3.7, 8.9, 1.7),
+                (trail_x(10.6) - 3.6, 10.6, 1.8),
             )
-            lens_pairs = [(0.0, 42), (0.25, 52), (0.5, 46), (0.75, 55), (1.0, 38)]
+            for fraction, hero_loc, y, (cam_x, cam_y, height) in zip(
+                fractions,
+                hero_locations,
+                hero_ys,
+                ambush_camera_points,
+            ):
+                add_camera_key(
+                    fraction,
+                    (cam_x, cam_y, ground_z(cam_x, cam_y) + height),
+                    hero_loc,
+                    y,
+                    forward_distance=0.55,
+                    target_height=1.18,
+                )
+            lens_pairs = [(0.0, 38), (0.5, 49), (1.0, 60)]
             camera_fstop = 2.8
         else:
             add_tracking_keys(
