@@ -80,6 +80,9 @@ BlenderTheme = Literal[
     "last_survivor",
     "nature_valley",
     "history_fort",
+    "space_frontier",
+    "history_fort_cinematic",
+    "city_finance",
     "abstract_shapes",
 ]
 

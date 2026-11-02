@@ -221,6 +221,9 @@ export type BlenderThemeId =
   | 'last_survivor'
   | 'nature_valley'
   | 'history_fort'
+  | 'space_frontier'
+  | 'history_fort_cinematic'
+  | 'city_finance'
   | 'abstract_shapes';
 export type BlenderThemeSelection = BlenderThemeId | 'auto';
 export type MotionSelectionId = MotionTemplateId | 'auto' | 'blender_3d';

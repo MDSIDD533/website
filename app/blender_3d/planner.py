@@ -7,7 +7,7 @@ from typing import Any
 
 from app.script_parser import parse_script
 
-PLANNER_VERSION = "blender3d-plan-v3"
+PLANNER_VERSION = "blender3d-plan-v4"
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720
 DEFAULT_FPS = 15
@@ -206,6 +206,30 @@ THEMES: dict[str, ThemeInfo] = {
         description="Procedural fort walls, watch towers, banners, guards and torch-lit gate.",
         default_captions=("HISTORY FORT", "THE OLD GATE", "GUARDS ON WATCH"),
         palette={"sky": "#E8DCC7", "ground": "#8A735A", "accent": "#A85B2A", "water": "#6B93A6"},
+    ),
+    "space_frontier": ThemeInfo(
+        id="space_frontier",
+        label="Space Frontier",
+        environment="space_station",
+        description="Cinematic deep-space orbital station with a rotating habitat ring, docking spacecraft, ringed planet, asteroid field and solar arrays.",
+        default_captions=("SPACE FRONTIER", "ORBITAL STATION", "BEYOND THE RINGS", "SIGNAL FROM DEEP SPACE"),
+        palette={"sky": "#020716", "ground": "#2A3142", "accent": "#7DD3FC", "water": "#2563EB"},
+    ),
+    "history_fort_cinematic": ThemeInfo(
+        id="history_fort_cinematic",
+        label="History Fort Cinematic",
+        environment="fort_cinematic",
+        description="Golden-hour hill fort with layered stone walls, a switchback royal road, cavalry silhouettes, banners, watch fires and a monumental gate.",
+        default_captions=("HISTORY FORT", "GATE OF KINGS", "BANNERS AT DAWN", "THE OLD EMPIRE"),
+        palette={"sky": "#F2C98A", "ground": "#776044", "accent": "#B5532A", "water": "#527A8A"},
+    ),
+    "city_finance": ThemeInfo(
+        id="city_finance",
+        label="City Finance",
+        environment="city_finance",
+        description="Night-time financial district with glass towers, a stock-exchange plaza, glowing market graph, coin fountain, traffic trails and a golden bull statue.",
+        default_captions=("CITY FINANCE", "MARKETS AFTER DARK", "CAPITAL IN MOTION", "THE BULL RUN"),
+        palette={"sky": "#07111F", "ground": "#121A26", "accent": "#F5C451", "water": "#1D4ED8"},
     ),
     "abstract_shapes": ThemeInfo(
         id="abstract_shapes",
@@ -497,6 +521,30 @@ _CUE_PATTERNS: dict[str, tuple[tuple[str, str], ...]] = {
         ("history", r"\bhistory\b|\bhistorical\b|\btareekh\b"),
         ("palace", r"\bpalace(?:s)?\b|\broyal\b"),
     ),
+    "space_frontier": (
+        ("space station", r"\bspace\s+station\b|\borbital\s+station\b|\borbital\s+habitat\b"),
+        ("deep space", r"\bdeep\s+space\b|\binterstellar\b|\bfrontier\s+station\b"),
+        ("starship", r"\bstarship(?:s)?\b|\bspacecraft\b|\bdocking\b|\bdocked\b"),
+        ("ringed planet", r"\bringed\s+planet\b|\bplanet(?:'s)?\s+rings?\b|\bsaturn(?:'s)?\s+rings?\b"),
+        ("asteroid field", r"\basteroid(?:s| field)?\b|\bmeteor\s+field\b"),
+        ("space colony", r"\bspace\s+colony\b|\borbital\s+colony\b|\bhabitat\s+ring\b"),
+    ),
+    "history_fort_cinematic": (
+        ("hill fort", r"\bhill\s+fort\b|\bmountain\s+fortress\b|\bcliff\s+fort\b"),
+        ("royal gate", r"\broyal\s+gate\b|\bgate\s+of\s+kings\b|\bmonumental\s+gate\b"),
+        ("cavalry", r"\bcavalry\b|\bhorsemen\b|\bhorse\s+riders?\b|\bghurr\s*sawar\b"),
+        ("banners", r"\bbanner(?:s)?\b|\broyal\s+standard(?:s)?\b"),
+        ("golden dawn", r"\bgolden\s+(?:dawn|hour)\b|\bdawn\s+over\s+the\s+fort\b|\bsunrise\s+over\s+the\s+fort\b"),
+        ("empire road", r"\broyal\s+road\b|\bempire\s+road\b|\bswitchback\s+road\b"),
+    ),
+    "city_finance": (
+        ("city finance", r"\bcity\s+finance\b|\bfinancial\s+district\b|\bbanking\s+district\b"),
+        ("stock exchange", r"\bstock\s+exchange\b|\btrading\s+floor\b|\bwall\s+street\b"),
+        ("bull market", r"\bbull\s+(?:market|run)\b|\bmarket\s+rally\b|\bstocks?\s+(?:surge|soar|rise)\b"),
+        ("skyscrapers", r"\bskyscraper(?:s)?\b|\bglass\s+towers?\b|\bfinance\s+towers?\b"),
+        ("market chart", r"\bmarket\s+(?:chart|graph)\b|\bstock\s+(?:chart|graph|ticker)\b|\bticker\b"),
+        ("investment bank", r"\binvestment\s+bank(?:s|ing)?\b|\bcapital\s+markets?\b"),
+    ),
 }
 
 
@@ -574,18 +622,31 @@ def classify_script_topic(script_text: str, scenes: list[dict[str, Any]] | None 
         reasons.append("battlefield_cues")
         return _decision("ww2_battlefield", ww2 + war, reasons, 0.78)
 
+    nature_cues = _cue_matches(text, "nature")
+    history_cues = _cue_matches(text, "history_fort")
+    history_cinematic_cues = _cue_matches(text, "history_fort_cinematic")
+    if "jungle" in parser_locations:
+        nature_cues.append("parser:jungle")
+    if "fort" in parser_locations and history_cues:
+        history_cues.append("parser:fort")
+    if "fort" in parser_locations and history_cinematic_cues:
+        history_cinematic_cues.append("parser:fort")
+
+    # The cinematic packs deliberately precede their broader legacy themes.
+    # Python's stable sort therefore lets a specific phrase such as
+    # "financial district" or "hill fort" win a cue-count tie, while a plain
+    # Moon/bank/fort script with more generic cues still keeps the old set.
     candidates = [
+        ("space_frontier", _cue_matches(text, "space_frontier"), "space_frontier_cues"),
+        ("history_fort_cinematic", history_cinematic_cues, "history_fort_cinematic_cues"),
+        ("city_finance", _cue_matches(text, "city_finance"), "city_finance_cues"),
         ("space_voyage", _cue_matches(text, "space"), "space_cues"),
         ("finance_city", _cue_matches(text, "finance"), "finance_cues"),
         ("tech_lab", _cue_matches(text, "tech"), "technology_cues"),
         ("ocean_voyage", _cue_matches(text, "ocean"), "ocean_cues"),
-        ("nature_valley", _cue_matches(text, "nature"), "nature_cues"),
-        ("history_fort", _cue_matches(text, "history_fort"), "history_fort_cues"),
+        ("nature_valley", nature_cues, "nature_cues"),
+        ("history_fort", history_cues, "history_fort_cues"),
     ]
-    if "jungle" in parser_locations:
-        candidates[4][1].append("parser:jungle")
-    if "fort" in parser_locations and candidates[5][1]:
-        candidates[5][1].append("parser:fort")
     candidates.sort(key=lambda item: len(item[1]), reverse=True)
     best_theme, best_cues, reason = candidates[0]
     if best_cues:
@@ -742,6 +803,36 @@ def derive_captions(script_text: str, theme: str, title: str, sentences: list[st
                 break
         return captions[:4]
 
+    cinematic_caption_cues: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+        "space_frontier": (
+            ("ORBITAL STATION", ("station", "docking", "habitat", "orbital")),
+            ("BEYOND THE RINGS", ("ringed", "rings", "planet", "saturn")),
+            ("SIGNAL FROM DEEP SPACE", ("deep space", "signal", "interstellar", "frontier")),
+        ),
+        "history_fort_cinematic": (
+            ("GATE OF KINGS", ("royal gate", "gate of kings", "king", "monumental gate")),
+            ("BANNERS AT DAWN", ("dawn", "sunrise", "golden hour", "banners")),
+            ("THE OLD EMPIRE", ("empire", "cavalry", "horsemen", "royal road")),
+        ),
+        "city_finance": (
+            ("MARKETS AFTER DARK", ("night", "after dark", "neon", "midnight")),
+            ("CAPITAL IN MOTION", ("capital", "trading", "stock exchange", "investment")),
+            ("THE BULL RUN", ("bull", "rally", "surge", "soar", "rising")),
+        ),
+    }
+    if theme in cinematic_caption_cues:
+        text = script_text.lower()
+        captions = [_clean_caption(title or THEMES[theme].label)]
+        for caption, cues in cinematic_caption_cues[theme]:
+            if any(cue in text for cue in cues) and caption not in captions:
+                captions.append(caption)
+        for fallback in THEMES[theme].default_captions:
+            if fallback not in captions:
+                captions.append(fallback)
+            if len(captions) >= 4:
+                break
+        return captions[:4]
+
     captions: list[str] = []
     if title:
         captions.append(_clean_caption(title))
@@ -874,6 +965,10 @@ def plan_blender_3d(
         warnings.append("Jungle-war cues were detected, so the dark aerial rainforest ambush scene was selected.")
     if topic.theme == "last_survivor" and requested.theme == "auto":
         warnings.append("Last-survivor cues were detected, so the rear-silhouette hero scene was selected.")
+    if topic.theme in {"space_frontier", "history_fort_cinematic", "city_finance"} and requested.theme == "auto":
+        warnings.append(
+            f"{THEMES[topic.theme].label} cues were detected, so the new cinematic Blender theme pack was selected."
+        )
     return Blender3DPlan(
         planner_version=PLANNER_VERSION,
         script_text=script,

@@ -7,7 +7,7 @@ from typing import Any, Callable, Iterable
 
 from .planner import Blender3DRequest, THEMES, quality_profile
 
-BUILDER_VERSION = "blender3d-scene-v3"
+BUILDER_VERSION = "blender3d-scene-v4"
 
 
 def _rgba(value: str, alpha: float = 1.0) -> tuple[float, float, float, float]:
@@ -2854,6 +2854,482 @@ class SceneFactory:
         self.make_person("AbstractGuide", (-28, -20, 0.25), math.radians(20), uniform=self.M["white"], weapon="none", helmet=False, move_distance=38)
         self._generic_camera((0, 7, 5))
 
+    # --------------------------------------------------- cinematic theme packs
+    def build_space_frontier(self) -> None:
+        """Deep-space station set built around a rotating habitat ring."""
+
+        self.setup_world_and_lights(
+            world_strength=0.16,
+            sun_energy=1.7,
+            sun_rotation=(math.radians(58), math.radians(8), math.radians(-28)),
+            sun_color="#DCEAFF",
+            fill_energy=175.0,
+        )
+        hull = self.mat("FrontierHull", "#C8D2DE", roughness=0.38, metallic=0.48)
+        hull_dark = self.mat("FrontierHullDark", "#394354", roughness=0.46, metallic=0.52)
+        solar = self.mat("FrontierSolar", "#2456A6", roughness=0.28, metallic=0.3, emission="#174A9E", emission_strength=0.55)
+        window_glow = self.mat("FrontierWindows", "#BDEBFF", roughness=1.0, emission="#7DD3FC", emission_strength=2.4)
+        beacon = self.mat("FrontierBeacon", "#FF6B5E", roughness=1.0, emission="#FF3B30", emission_strength=3.0)
+        rock = self.mat("FrontierAsteroid", "#6F6A63", roughness=0.98)
+        star_mat = self.mat("FrontierStars", "#FFFFFF", roughness=1.0, emission="#FFFFFF", emission_strength=3.2)
+
+        for index in range(84):
+            size = self.rng.uniform(0.16, 0.42)
+            self.sphere(
+                f"FrontierStar{index}",
+                (self.rng.uniform(-105, 105), self.rng.uniform(38, 72), self.rng.uniform(-8, 58)),
+                (size, size, size),
+                star_mat,
+            )
+
+        planet = self.empty("FrontierRingedPlanet", (45, 52, 31))
+        planet_core = self.sphere("FrontierPlanetCore", (0, 0, 0), (20, 20, 20), self.mat("FrontierPlanet", "#7C5CBF", roughness=0.72), parent=planet)
+        self.sphere("FrontierPlanetBandA", (0, -0.4, 3.6), (20.15, 20.15, 4.6), self.mat("FrontierPlanetBand", "#C9A7E8", roughness=0.82), parent=planet)
+        self.sphere("FrontierPlanetBandB", (0, -0.2, -4.4), (20.1, 20.1, 3.4), self.mat("FrontierPlanetShadow", "#4C3A78", roughness=0.9), parent=planet)
+        ring_mat = self.mat("FrontierPlanetRing", "#E8DCC2", roughness=0.88, alpha=0.82)
+        # The shared torus primitive lies in the XY plane, which is the
+        # planet's equatorial plane.  Flattening only Z therefore produces a
+        # recognisable Saturn-style ellipse from the elevated camera instead
+        # of a solid vertical disc behind the sphere.
+        self.torus("FrontierPlanetRingInner", (0, 0, 0), (36, 36, 0.55), ring_mat, (math.radians(10), 0, math.radians(-10)), planet)
+        self.torus("FrontierPlanetRingOuter", (0, 0, 0), (47, 47, 0.38), self.mat("FrontierPlanetRingOuter", "#B8C7E8", roughness=0.9, alpha=0.45), (math.radians(10), 0, math.radians(-10)), planet)
+        self.spin(planet_core, 2, 0.05)
+
+        earth = self.empty("FrontierEarth", (-56, 54, 38))
+        self.sphere("FrontierEarthSphere", (0, 0, 0), (10.5, 10.5, 10.5), self.M["blue"], parent=earth)
+        for index, offset in enumerate(((-2.6, -4.75, 1.6), (2.2, -4.9, -1.4), (0.4, -5.05, 3.4))):
+            self.sphere(f"FrontierContinent{index}", offset, (2.5, 0.65, 1.55), self.M["leaf"], parent=earth)
+        self.spin(earth, 2, 0.07)
+
+        station = self.empty("FrontierStation", (0, 18, 16))
+        self.torus("FrontierHabitatRing", (0, 0, 0), (30, 30, 3.2), hull, (math.radians(90), 0, 0), station)
+        self.cylinder("FrontierStationHub", (0, 0, 0), (5.4, 5.4, 17), hull_dark, (math.radians(90), 0, 0), station)
+        self.sphere("FrontierCommandDome", (0, -8.65, 0), (4.6, 2.2, 4.6), self.M["glass"], parent=station)
+        for index in range(8):
+            angle = index * math.tau / 8
+            x = 15 * math.cos(angle)
+            z = 15 * math.sin(angle)
+            module = self.box(
+                f"FrontierRingModule{index}",
+                (x, 0, z),
+                (3.2, 3.7, 2.35),
+                hull if index % 2 else hull_dark,
+                (0, -angle, 0),
+                station,
+            )
+            self.box(f"FrontierRingWindow{index}", (x, -1.95, z), (1.45, 0.12, 0.72), window_glow, (0, -angle, 0), station)
+            self.beam(f"FrontierSpoke{index}", (0, 0, 0), (x * 0.88, 0, z * 0.88), 0.42, hull_dark, station)
+            if index % 2 == 0:
+                light = self.sphere(f"FrontierRingBeacon{index}", (x, -2.1, z), (0.5, 0.5, 0.5), beacon, parent=station)
+                self.oscillate_location_z(light, 0.08, 1.4, index)
+        for sign in (-1, 1):
+            self.beam(f"FrontierSolarBoom{sign}", (4.8 * sign, 1.8, 0), (16 * sign, 1.8, 0), 0.38, hull_dark, station)
+            panel = self.box(f"FrontierSolarPanel{sign}", (23 * sign, 1.8, 0), (13.5, 0.18, 5.2), solar, parent=station)
+            self.oscillate_rotation(panel, 0, 0.04, 5.0, sign)
+            for stripe in range(-2, 3):
+                self.box(f"FrontierSolarStripe{sign}_{stripe}", ((23 + stripe * 2.35) * sign, 1.68, 0), (0.12, 0.06, 5.25), window_glow, parent=station)
+        self.beam("FrontierAntennaMast", (0, -2, 0), (0, -6.5, 7.5), 0.22, hull_dark, station)
+        self.cone("FrontierDish", (0, -7.0, 8.1), (3.6, 3.6, 1.15), hull, (math.radians(118), 0, 0), station)
+        self.point_light("FrontierStationLight", (0, -7, 0), "#7DD3FC", 360, station)
+        self.spin(station, 1, 0.085)
+
+        craft = self.empty("FrontierDockingCraft", (-54, -12, 7), (0, 0, 0.1))
+        self.cylinder("FrontierCraftBody", (0, 0, 0), (2.5, 2.5, 8.2), hull, (0, math.radians(90), 0), craft)
+        self.cone("FrontierCraftNose", (5.1, 0, 0), (2.45, 2.45, 2.5), self.M["red"], (0, math.radians(90), 0), craft)
+        self.box("FrontierCraftWindow", (2.75, -1.26, 0.35), (1.35, 0.1, 0.65), window_glow, parent=craft)
+        self.box("FrontierCraftWingTop", (-2.9, 0, 1.55), (2.2, 0.18, 2.5), hull_dark, parent=craft)
+        self.box("FrontierCraftWingBottom", (-2.9, 0, -1.55), (2.2, 0.18, 2.5), hull_dark, parent=craft)
+        flame = self.cone("FrontierCraftFlame", (-5.15, 0, 0), (1.25, 1.25, 2.2), self.M["fire"], (0, math.radians(-90), 0), craft)
+        self.oscillate_rotation(flame, 2, 0.06, 0.36)
+        self.point_light("FrontierCraftLight", (-4.4, 0, 0), "#FF8A3D", 300, craft)
+        self.keys(
+            craft,
+            "location",
+            [
+                (self.at(0.0), (-54, -12, 7)),
+                (self.at(0.38), (-31, 0, 10)),
+                (self.at(0.72), (-17, 10, 14)),
+                (self.at(1.0), (-12.5, 14.5, 15.5)),
+            ],
+            "BEZIER",
+        )
+        self.keys(craft, "rotation_euler", [(self.at(0.0), (0, 0, 0.1)), (self.at(0.72), (0, 0, 0.2)), (self.at(1.0), (0, 0, 0.05))])
+
+        satellite = self.empty("FrontierSatellite", (-38, 28, 27))
+        self.box("FrontierSatelliteBody", (0, 0, 0), (2.4, 1.3, 1.3), self.M["gold"], parent=satellite)
+        for sign in (-1, 1):
+            self.box(f"FrontierSatellitePanel{sign}", (0, 2.7 * sign, 0), (3.0, 3.8, 0.12), solar, parent=satellite)
+        orbit_points = []
+        for index in range(9):
+            fraction = index / 8
+            angle = fraction * math.tau
+            orbit_points.append((self.at(fraction), (2 + 39 * math.cos(angle), 24 + 9 * math.sin(angle), 27 + 5 * math.sin(angle * 2))))
+        self.keys(satellite, "location", orbit_points, "BEZIER")
+        self.spin(satellite, 2, 0.9)
+
+        for index in range(24):
+            start = (
+                self.rng.uniform(-78, 76),
+                self.rng.uniform(-8, 40),
+                self.rng.uniform(-4, 38),
+            )
+            if abs(start[0]) < 24 and 8 < start[1] < 30 and 7 < start[2] < 27:
+                start = (start[0] - 38, start[1], start[2] + 14)
+            size = self.rng.uniform(0.8, 2.6)
+            asteroid = self.sphere(
+                f"FrontierAsteroid{index}",
+                start,
+                (size, size * self.rng.uniform(0.65, 1.0), size * self.rng.uniform(0.55, 0.9)),
+                rock,
+                (self.rng.random(), self.rng.random(), self.rng.random()),
+            )
+            self.move(
+                asteroid,
+                0,
+                self.duration,
+                (start[0] + self.rng.uniform(4, 11), start[1] + self.rng.uniform(-2, 3), start[2] + self.rng.uniform(-1.5, 1.5)),
+                start_location=start,
+                interpolation="LINEAR",
+            )
+            self.spin(asteroid, 2, self.rng.uniform(0.12, 0.35))
+
+        # Keep the station and ringed planet in the same wide composition for
+        # the full arc; the earlier telephoto keys cropped both subjects.
+        self.setup_camera(
+            [(0.0, (-48, -48, 24)), (0.32, (-34, -46, 22)), (0.58, (-8, -44, 24)), (0.8, (18, -40, 27)), (1.0, (42, -32, 31))],
+            [(0.0, (-8, 16, 16)), (0.38, (0, 19, 17)), (0.68, (8, 23, 19)), (1.0, (18, 29, 22))],
+            [(0.0, 28), (0.55, 31), (1.0, 29)],
+            fstop=4.0,
+        )
+
+    def build_history_fort_cinematic(self) -> None:
+        """Golden-hour hill fort with layered walls and a royal switchback road."""
+
+        self.setup_world_and_lights(
+            world_strength=0.32,
+            sun_energy=3.2,
+            sun_rotation=(math.radians(61), math.radians(18), math.radians(-38)),
+            sun_color="#FFD9A0",
+            fill_energy=210.0,
+        )
+        self.setup_mist_compositor(color="#C9A06B", max_factor=0.16, start=58.0, depth=125.0)
+        window_glow = self.mat("CinematicFortWindows", "#FFD27A", roughness=1.0, emission="#FFB84D", emission_strength=1.9)
+        sun_disc = self.mat("CinematicFortSun", "#FFE3A3", roughness=1.0, emission="#FFC86E", emission_strength=2.7)
+        road_mat = self.mat("CinematicFortRoad", "#A98A63", roughness=0.98)
+
+        def hill_height(x: float, y: float) -> float:
+            hill = 6.8 * math.exp(-(((x / 54.0) ** 2) + (((y - 24.0) / 31.0) ** 2)))
+            ridge = 1.15 * math.exp(-(((x / 95.0) ** 2) + (((y - 48.0) / 18.0) ** 2)))
+            return hill + ridge + 0.22 * math.sin(x * 0.075) * math.cos(y * 0.09)
+
+        def terrain_color(x: float, y: float, z: float) -> tuple[float, float, float, float]:
+            road_x = -20.0 * math.sin((y + 30.0) * 0.045)
+            if y < 15 and abs(x - road_x) < 3.1:
+                return (0.66, 0.54, 0.36, 1)
+            if z > 5.2:
+                return (0.58, 0.48, 0.33, 1)
+            if y > 34:
+                return (0.42, 0.43, 0.27, 1)
+            return (0.47, 0.45, 0.28, 1)
+
+        self.grid_terrain(
+            "CinematicFortHill",
+            x_range=(-105, 105),
+            y_range=(-58, 58),
+            nx=48,
+            ny=32,
+            height_fn=hill_height,
+            color_fn=terrain_color,
+            material=self.vertex_material("CinematicFortTerrain", roughness=0.98),
+        )
+
+        road_points = [(-42, -42), (-24, -31), (-34, -19), (-14, -8), (3, 1), (0, 11)]
+        for index, (start, end) in enumerate(zip(road_points, road_points[1:])):
+            midpoint = ((start[0] + end[0]) / 2, (start[1] + end[1]) / 2)
+            length = math.dist(start, end) + 1.4
+            angle = math.atan2(end[1] - start[1], end[0] - start[0])
+            self.box(
+                f"CinematicRoyalRoad{index}",
+                (midpoint[0], midpoint[1], hill_height(*midpoint) + 0.24),
+                (length, 4.35, 0.28),
+                road_mat,
+                (0, 0, angle),
+            )
+            for side in (-1, 1):
+                stone_x = midpoint[0] - math.sin(angle) * 2.45 * side
+                stone_y = midpoint[1] + math.cos(angle) * 2.45 * side
+                self.sphere(
+                    f"CinematicRoadStone{index}_{side}",
+                    (stone_x, stone_y, hill_height(stone_x, stone_y) + 0.32),
+                    (0.62, 0.62, 0.48),
+                    self.M["stone"],
+                )
+
+        fort_z = hill_height(0, 24) - 0.45
+        fort = self.empty("CinematicHillFort", (0, 24, fort_z))
+        self.box("CinematicFortFoundation", (0, 3, 0.6), (86, 38, 4.8), self.M["brick"], parent=fort)
+        self.box("CinematicFortFrontWall", (0, -10, 6.2), (78, 4.2, 10.4), self.M["stone"], parent=fort)
+        self.box("CinematicFortRearWall", (0, 18, 5.7), (78, 4.0, 9.4), self.M["brick"], parent=fort)
+        for sign in (-1, 1):
+            self.box(f"CinematicFortSideWall{sign}", (37 * sign, 4, 5.9), (4.0, 31, 9.8), self.M["stone"], parent=fort)
+            self.box(f"CinematicFortWalkway{sign}", (34.2 * sign, 4, 10.95), (2.0, 29, 0.45), self.M["sand"], parent=fort)
+        self.box("CinematicFortFrontWalkway", (0, -7.4, 11.55), (74, 1.8, 0.45), self.M["sand"], parent=fort)
+        for index, x in enumerate(range(-36, 37, 4)):
+            if abs(x) > 5:
+                self.box(f"CinematicFrontMerlon{index}", (x, -10.4, 11.95), (2.0, 2.2, 1.15), self.M["brick"] if index % 2 else self.M["stone"], parent=fort)
+        for index, (x, y, height) in enumerate(((-38, -10, 16), (38, -10, 16), (-38, 18, 14), (38, 18, 14), (-8, -10, 18), (8, -10, 18))):
+            self.cylinder(f"CinematicFortTower{index}", (x, y, height / 2 + 1), (8.8, 8.8, height), self.M["brick"] if index % 2 else self.M["stone"], parent=fort)
+            self.cone(f"CinematicFortTowerRoof{index}", (x, y, height + 2.65), (10.0, 10.0, 3.3), self.M["red"], parent=fort)
+            self.box(f"CinematicFortTowerWindow{index}", (x, y - 4.48, height - 1.5), (1.0, 0.16, 1.55), window_glow, parent=fort)
+
+        self.box("CinematicFortGateShadow", (0, -12.28, 4.1), (9.4, 0.35, 7.2), self.M["black"], parent=fort)
+        for sign in (-1, 1):
+            door = self.box(f"CinematicFortGateDoor{sign}", (2.15 * sign, -12.48, 3.9), (4.0, 0.32, 6.8), self.M["wood"], (0, 0, 0.12 * sign), fort)
+            self.oscillate_rotation(door, 2, 0.018, 3.4, sign)
+        self.box("CinematicFortGateArch", (0, -12.35, 8.15), (11.4, 0.5, 1.25), self.M["sand"], parent=fort)
+        self.box("CinematicFortKeep", (0, 9, 9.2), (28, 16, 16.4), self.M["stone"], parent=fort)
+        self.cone("CinematicFortKeepRoof", (0, 9, 19.1), (31, 19, 4.2), self.M["red"], (0, 0, math.radians(45)), fort)
+        for index, x in enumerate((-8, 0, 8)):
+            self.box(f"CinematicKeepWindow{index}", (x, 0.82, 10.8), (1.25, 0.16, 2.0), window_glow, parent=fort)
+        for index, x in enumerate((-27, -18, 18, 27)):
+            banner = self.box(f"CinematicFortBanner{index}", (x, -12.42, 7.0), (2.5, 0.1, 5.2), self.M["red"] if index % 2 else self.M["gold"], parent=fort)
+            self.oscillate_rotation(banner, 0, 0.055, 1.9, index * 0.7)
+        for index, x in enumerate((-13, 13)):
+            torch = self.empty(f"CinematicGateTorch{index}", (x, -12.7, 1.2), parent=fort)
+            self.cylinder(f"CinematicTorchPole{index}", (0, 0, 1.5), (0.18, 0.18, 3.0), self.M["wood"], parent=torch)
+            flame = self.cone(f"CinematicTorchFlame{index}", (0, 0, 3.35), (0.62, 0.62, 1.2), self.M["fire"], parent=torch)
+            self.oscillate_rotation(flame, 2, 0.08, 0.42, index)
+            self.point_light(f"CinematicTorchLight{index}", (0, -0.3, 3.3), "#FF9A45", 240, torch)
+        self.make_flag("CinematicFortMainFlag", (0, 24, fort_z + 20.2), self.M["red"], height=5.2, size=1.45)
+
+        for index in range(6):
+            x = -24 + index * 9.5
+            if abs(x) < 6:
+                continue
+            self.make_person(
+                f"CinematicWallGuard{index}",
+                (x, 16.6, fort_z + 11.8),
+                math.radians(-90),
+                uniform=self.M["red"] if index % 2 else self.M["blue"],
+                weapon="spear",
+                phase=index,
+                move_distance=1.6 if index in {1, 4} else 0,
+            )
+        for index, x in enumerate((-7.5, 7.5)):
+            self.make_person(
+                f"CinematicGateGuard{index}",
+                (x, 10.6, hill_height(x, 10.6) + 0.25),
+                math.radians(-90),
+                uniform=self.M["gold"],
+                weapon="spear",
+                phase=index * 1.7,
+            )
+
+        def make_cavalry(index: int, start: tuple[float, float], end: tuple[float, float], uniform: Any) -> None:
+            heading = math.atan2(end[1] - start[1], end[0] - start[0])
+            start3 = (start[0], start[1], hill_height(*start) + 0.32)
+            end3 = (end[0], end[1], hill_height(*end) + 0.32)
+            horse = self.empty(f"CinematicCavalry{index}", start3, (0, 0, heading))
+            self.box(f"CinematicHorseBody{index}", (0, 0, 1.18), (2.45, 0.78, 0.82), self.M["wood"], parent=horse)
+            self.box(f"CinematicHorseNeck{index}", (1.08, 0, 1.58), (0.72, 0.44, 1.0), self.M["wood"], (0, math.radians(-24), 0), horse)
+            self.box(f"CinematicHorseHead{index}", (1.52, 0, 1.84), (0.82, 0.42, 0.42), self.M["wood"], parent=horse)
+            for leg_index, (lx, ly) in enumerate(((-0.85, -0.27), (-0.85, 0.27), (0.85, -0.27), (0.85, 0.27))):
+                self.cylinder(f"CinematicHorseLeg{index}_{leg_index}", (lx, ly, 0.5), (0.17, 0.17, 1.0), self.M["dark"], parent=horse)
+            self.cylinder(f"CinematicHorseTail{index}", (-1.35, 0, 1.2), (0.13, 0.13, 0.9), self.M["black"], (0, math.radians(24), 0), horse)
+            self.box(f"CinematicRiderTorso{index}", (-0.08, 0, 2.02), (0.48, 0.56, 0.88), uniform, parent=horse)
+            self.sphere(f"CinematicRiderHead{index}", (-0.08, 0, 2.66), (0.48, 0.48, 0.52), self.M["skin"], parent=horse)
+            self.cylinder(f"CinematicRiderSpear{index}", (0.35, -0.38, 2.25), (0.07, 0.07, 2.6), self.M["wood"], parent=horse)
+            self.cone(f"CinematicRiderSpearTip{index}", (0.35, -0.38, 3.62), (0.18, 0.18, 0.32), self.M["metal"], parent=horse)
+            self.move(horse, self.at(0.08 + index * 0.05), self.at(0.9), end3, start_location=start3)
+            self.oscillate_location_z(horse, 0.045, 0.72, index)
+
+        make_cavalry(0, (-38, -36), (-8, 4), self.M["red"])
+        make_cavalry(1, (-29, -29), (2, 8), self.M["blue"])
+        make_cavalry(2, (-18, -19), (7, 9), self.M["gold"])
+
+        self.sphere("CinematicFortSunDisc", (-58, 58, 31), (11, 1.0, 11), sun_disc)
+        for index, (x, scale) in enumerate(((-72, 25), (-38, 19), (42, 22), (74, 28))):
+            self.cone(f"CinematicDistantMountain{index}", (x, 56, 7), (scale, 13, 16 + index * 2), self.M["stone"])
+        for index in range(5):
+            bird = self.cone(f"CinematicFortBird{index}", (-58 + index * 6, 36, 25 + index), (1.0, 0.28, 0.24), self.M["dark"], (0, math.radians(-90), 0))
+            start = tuple(bird.location)
+            self.move(bird, 0, self.duration, (start[0] + 92, start[1] - 7, start[2] + 3), start_location=start, interpolation="LINEAR")
+        for index, (x, y) in enumerate(((-62, -20), (-48, 5), (52, -22), (64, 4), (-58, 26), (60, 28))):
+            self.make_tree(f"CinematicFortTree{index}", (x, y, hill_height(x, y) + 0.2), scale=1.0 + (index % 3) * 0.18)
+        for index in range(3):
+            self.make_cloud(f"CinematicFortCloud{index}", (-52 + index * 38, 50, 32 + index * 2), 4.2, drift=6)
+
+        # A wider fortress reveal keeps the road, gate, towers and keep in
+        # frame instead of cropping to one wall at the thumbnail point.
+        self.setup_camera(
+            [(0.0, (-58, -58, 16)), (0.3, (-40, -52, 18)), (0.58, (-8, -48, 22)), (0.8, (24, -40, 25)), (1.0, (48, -30, 30))],
+            [(0.0, (-16, -6, 4)), (0.35, (0, 14, 10)), (0.68, (0, 23, 13)), (1.0, (5, 25, 13))],
+            [(0.0, 27), (0.55, 31), (1.0, 29)],
+            fstop=3.8,
+        )
+
+    def build_city_finance(self) -> None:
+        """Neon night-market district with a live graph ribbon and exchange plaza."""
+
+        self.setup_world_and_lights(
+            world_strength=0.2,
+            sun_energy=0.95,
+            sun_rotation=(math.radians(56), math.radians(10), math.radians(-24)),
+            sun_color="#BFD7FF",
+            fill_energy=175.0,
+        )
+        self.setup_mist_compositor(color="#0A1830", max_factor=0.3, start=42.0, depth=115.0)
+        glass_blue = self.mat("CityFinanceGlassBlue", "#162C4A", roughness=0.26, metallic=0.34)
+        glass_teal = self.mat("CityFinanceGlassTeal", "#12333A", roughness=0.3, metallic=0.3)
+        gold_windows = self.mat("CityFinanceGoldWindows", "#FFD27A", roughness=1.0, emission="#FFB84D", emission_strength=1.85)
+        cyan_windows = self.mat("CityFinanceCyanWindows", "#A5F3FC", roughness=1.0, emission="#22D3EE", emission_strength=2.0)
+        chart_green = self.mat("CityFinanceChart", "#37E39A", roughness=1.0, emission="#22C55E", emission_strength=2.7)
+        chart_gold = self.mat("CityFinanceChartGold", "#F5C451", roughness=1.0, emission="#F59E0B", emission_strength=2.5)
+        neon_red = self.mat("CityFinanceBeacon", "#FF6B5E", roughness=1.0, emission="#EF4444", emission_strength=2.8)
+
+        self.box("CityFinanceGround", (0, 7, -0.18), (180, 115, 0.36), self.M["ground"])
+        self.box("CityFinanceMainAvenue", (0, -17, 0.03), (170, 8.5, 0.08), self.M["black"])
+        self.box("CityFinanceCrossAvenue", (-24, 6, 0.04), (7.5, 92, 0.08), self.M["black"])
+        for index, x in enumerate(range(-76, 77, 12)):
+            self.box(f"CityFinanceLaneMark{index}", (x, -17, 0.1), (5.2, 0.18, 0.04), gold_windows)
+        for index, x in enumerate(range(-68, 69, 17)):
+            self.box(f"CityFinanceGridX{index}", (x, 13, 0.06), (0.16, 72, 0.04), cyan_windows)
+        for index, y in enumerate(range(-24, 45, 15)):
+            self.box(f"CityFinanceGridY{index}", (0, y, 0.055), (150, 0.16, 0.04), cyan_windows)
+
+        tower_specs = [
+            (-58, 27, 11, 9, 24, True),
+            (-43, 31, 9, 8, 18, False),
+            (-29, 25, 12, 9, 29, True),
+            (-13, 33, 9, 8, 21, True),
+            (15, 30, 10, 9, 26, False),
+            (30, 26, 12, 9, 31, True),
+            (47, 32, 9, 8, 20, True),
+            (61, 25, 11, 9, 25, False),
+        ]
+        for index, (x, y, width, depth, height, windows) in enumerate(tower_specs):
+            material = glass_blue if index % 2 == 0 else glass_teal
+            window_mat = gold_windows if index % 2 == 0 else cyan_windows
+            self.make_building(
+                f"CityFinanceTower{index}",
+                (x, y, 0),
+                (width, depth, height),
+                material,
+                windows=windows,
+                window_material=window_mat,
+            )
+            if not windows:
+                for strip in range(4):
+                    z = 3.2 + strip * max(2.2, height / 5)
+                    self.box(f"CityFinanceTowerStrip{index}_{strip}", (x, y - depth / 2 - 0.08, z), (width * 0.82, 0.07, 0.28), window_mat)
+            beacon_obj = self.sphere(f"CityFinanceTowerBeacon{index}", (x, y, height + 0.85), (0.55, 0.55, 0.55), neon_red if index % 3 == 0 else gold_windows)
+            self.oscillate_location_z(beacon_obj, 0.12, 1.6, index * 0.7)
+
+        self.make_building("CityFinanceCentralTower", (1, 36, 0), (13, 10, 36), glass_blue, windows=True, window_material=cyan_windows)
+        for index, z in enumerate((18, 24, 30)):
+            ring = self.torus(f"CityFinanceHoloRing{index}", (1, 36, z), (19 - index * 2, 19 - index * 2, 1.2), cyan_windows if index % 2 == 0 else chart_gold)
+            self.spin(ring, 2, 0.65 + index * 0.18)
+
+        exchange = self.empty("CityFinanceExchange", (0, 13, 0))
+        self.box("CityFinanceExchangeStepsA", (0, -5.6, 0.35), (28, 3.4, 0.7), self.M["stone"], parent=exchange)
+        self.box("CityFinanceExchangeStepsB", (0, -4.2, 0.85), (25, 3.0, 0.7), self.M["stone"], parent=exchange)
+        self.box("CityFinanceExchangeBody", (0, 1.0, 4.7), (23, 8.0, 7.4), self.M["white"], parent=exchange)
+        self.box("CityFinanceExchangeRoof", (0, 0, 8.75), (26, 10.5, 0.75), self.M["gold"], parent=exchange)
+        # Two shallow slabs meet at a centre ridge; the flattened front cone
+        # supplies the triangular pediment face without a diamond footprint.
+        self.box("CityFinanceExchangeRoofLeft", (-5.7, -0.4, 10.05), (12.2, 9.0, 0.42), self.M["stone"], (0, math.radians(-10), 0), exchange)
+        self.box("CityFinanceExchangeRoofRight", (5.7, -0.4, 10.05), (12.2, 9.0, 0.42), self.M["stone"], (0, math.radians(10), 0), exchange)
+        self.cone("CityFinanceExchangePediment", (0, -4.85, 10.25), (23, 1.0, 3.0), self.M["stone"], parent=exchange)
+        for index, x in enumerate((-9.5, -5.7, -1.9, 1.9, 5.7, 9.5)):
+            self.cylinder(f"CityFinanceExchangeColumn{index}", (x, -3.6, 4.65), (0.82, 0.82, 7.6), self.M["white"], parent=exchange)
+        self.box("CityFinanceExchangeSign", (0, -4.35, 6.7), (11.5, 0.16, 1.05), cyan_windows, parent=exchange)
+        self.point_light("CityFinanceExchangeLight", (0, -7, 5.2), "#7DD3FC", 330, exchange)
+
+        bull = self.empty("CityFinanceBull", (-15, -4.5, 0), (0, 0, math.radians(14)))
+        self.box("CityFinanceBullBody", (0, 0, 1.62), (4.8, 1.75, 1.95), self.M["gold"], parent=bull)
+        self.box("CityFinanceBullHead", (2.85, 0, 1.18), (1.55, 1.25, 1.12), self.M["gold"], (0, math.radians(18), 0), bull)
+        for sign in (-1, 1):
+            self.cone(f"CityFinanceBullHorn{sign}", (2.85, 0.88 * sign, 1.95), (0.5, 0.5, 1.05), self.M["white"], (math.radians(42 * sign), 0, 0), bull)
+        for leg_index, (lx, ly) in enumerate(((-1.7, -0.58), (-1.7, 0.58), (1.65, -0.58), (1.65, 0.58))):
+            self.cylinder(f"CityFinanceBullLeg{leg_index}", (lx, ly, 0.55), (0.3, 0.3, 1.1), self.M["gold"], parent=bull)
+        self.box("CityFinanceBullPlinth", (0, 0, 0.16), (6.3, 2.7, 0.32), self.M["dark"], parent=bull)
+
+        graph_points = [(-52, 29, 12), (-37, 30, 15), (-24, 31, 13.5), (-9, 31, 20), (5, 32, 18), (19, 32, 26), (34, 31, 24), (50, 30, 33)]
+        for index, (start, end) in enumerate(zip(graph_points, graph_points[1:])):
+            self.beam(f"CityFinanceGraphSegment{index}", start, end, 0.34, chart_green if index % 2 == 0 else chart_gold)
+        for index, point in enumerate(graph_points):
+            node = self.sphere(f"CityFinanceGraphNode{index}", point, (0.72, 0.72, 0.72), chart_gold if index % 2 else chart_green)
+            self.oscillate_location_z(node, 0.18, 1.8, index * 0.5)
+        pulse = self.sphere("CityFinanceGraphPulse", graph_points[0], (1.05, 1.05, 1.05), gold_windows)
+        self.keys(pulse, "location", [(self.at(index / (len(graph_points) - 1)), point) for index, point in enumerate(graph_points)], "BEZIER")
+
+        for index in range(6):
+            x = 26 + index * 5.2
+            height = 3.0 + index * 1.55
+            bar = self.box(f"CityFinanceRisingBar{index}", (x, -4, 0.45), (3.1, 3.1, 0.9), chart_green if index % 2 == 0 else chart_gold)
+            self.keys(bar, "scale", [(self.at(0.08 + index * 0.045), (3.1, 3.1, 0.9)), (self.at(0.5 + index * 0.06), (3.1, 3.1, height)), (self.at(1.0), (3.1, 3.1, height * 0.94))])
+            self.keys(bar, "location", [(self.at(0.08 + index * 0.045), (x, -4, 0.45)), (self.at(0.5 + index * 0.06), (x, -4, height / 2)), (self.at(1.0), (x, -4, height * 0.47))])
+
+        fountain = self.empty("CityFinanceCoinFountain", (-30, -7, 0))
+        self.cylinder("CityFinanceFountainBasin", (0, 0, 0.5), (13.5, 13.5, 1.0), self.M["dark"], parent=fountain)
+        self.cylinder("CityFinanceFountainWater", (0, 0, 1.02), (11.6, 11.6, 0.16), cyan_windows, parent=fountain)
+        self.cylinder("CityFinanceFountainPillar", (0, 0, 2.35), (1.15, 1.15, 3.6), self.M["gold"], parent=fountain)
+        for index in range(7):
+            angle = index * math.tau / 7
+            coin = self.cylinder(
+                f"CityFinanceFountainCoin{index}",
+                (3.1 * math.cos(angle), 3.1 * math.sin(angle), 2.4 + (index % 3) * 0.45),
+                (2.15, 0.28, 2.15),
+                self.M["gold"],
+                (math.radians(90), 0, angle),
+                fountain,
+            )
+            self.oscillate_location_z(coin, 0.42, 1.7, index * 0.65)
+            self.spin(coin, 1, 0.7)
+
+        def make_car(index: int, y: float, start_x: float, end_x: float, color_mat: Any) -> None:
+            heading = 0 if end_x > start_x else math.pi
+            car = self.empty(f"CityFinanceCar{index}", (start_x, y, 0.2), (0, 0, heading))
+            self.box(f"CityFinanceCarBody{index}", (0, 0, 0.62), (3.5, 1.45, 0.72), color_mat, parent=car)
+            self.box(f"CityFinanceCarCabin{index}", (-0.15, 0, 1.08), (1.75, 1.25, 0.62), self.M["glass"], parent=car)
+            for wheel_index, (wx, wy) in enumerate(((-1.2, -0.78), (-1.2, 0.78), (1.2, -0.78), (1.2, 0.78))):
+                self.cylinder(f"CityFinanceCarWheel{index}_{wheel_index}", (wx, wy, 0.25), (0.52, 0.14, 0.52), self.M["black"], (math.radians(90), 0, 0), car)
+            self.sphere(f"CityFinanceCarLightA{index}", (1.8, -0.42, 0.68), (0.22, 0.22, 0.22), gold_windows, parent=car)
+            self.sphere(f"CityFinanceCarLightB{index}", (1.8, 0.42, 0.68), (0.22, 0.22, 0.22), gold_windows, parent=car)
+            self.move(car, self.at(0.04 + index * 0.05), self.at(0.94), (end_x, y, 0.2), start_location=(start_x, y, 0.2), interpolation="LINEAR")
+
+        make_car(0, -19.2, -62, 58, self.M["red"])
+        make_car(1, -14.8, 60, -58, self.M["cyan"])
+        make_car(2, -19.2, -28, 66, self.M["white"])
+        make_car(3, -14.8, 24, -66, self.M["gold"])
+
+        for index, x in enumerate((-48, -16, 16, 48)):
+            self.cylinder(f"CityFinanceStreetPole{index}", (x, -11.8, 2.4), (0.16, 0.16, 4.8), self.M["dark"])
+            self.sphere(f"CityFinanceStreetLamp{index}", (x, -11.8, 4.95), (0.48, 0.48, 0.48), gold_windows)
+            if index in {1, 2}:
+                self.point_light(f"CityFinanceStreetLight{index}", (x, -11.8, 4.9), "#FFC86E", 190)
+
+        for index, (x, y, heading) in enumerate(((-20, -13, 18), (8, -10, -12), (22, -13, 160))):
+            self.make_person(
+                f"CityFinancePedestrian{index}",
+                (x, y, 0.1),
+                math.radians(heading),
+                uniform=self.M["blue"] if index % 2 == 0 else self.M["white"],
+                weapon="none",
+                helmet=False,
+                phase=index * 1.3,
+                move_distance=13 + index * 3,
+            )
+
+        # Pull the whole arc back so the exchange, bull/fountain foreground,
+        # towers and market-graph ribbon share the composition.
+        self.setup_camera(
+            [(0.0, (-58, -72, 22)), (0.3, (-38, -64, 20)), (0.58, (-5, -56, 24)), (0.8, (25, -48, 27)), (1.0, (48, -38, 32))],
+            [(0.0, (-14, 2, 5)), (0.38, (0, 13, 7)), (0.68, (10, 22, 12)), (1.0, (18, 27, 16))],
+            [(0.0, 27), (0.55, 31), (1.0, 29)],
+            fstop=4.0,
+        )
+
     # -------------------------------------------------------------- finalize
     def configure_render(self) -> dict[str, Any]:
         scene = self.scene
@@ -2876,7 +3352,13 @@ class SceneFactory:
         _safe_set(scene.render, "simplify_subdivision_render", 0)
         _safe_set(scene.display_settings, "display_device", "sRGB")
         _safe_set(scene.view_settings, "view_transform", "Filmic")
-        _safe_set(scene.view_settings, "look", "High Contrast" if self.theme in {"jungle_war", "last_survivor"} else "Medium Contrast")
+        _safe_set(
+            scene.view_settings,
+            "look",
+            "High Contrast"
+            if self.theme in {"jungle_war", "last_survivor", "history_fort_cinematic"}
+            else "Medium Contrast",
+        )
         if self.theme in {"jungle_war", "last_survivor"}:
             # Filmic negative exposure plus the dark palette and Mist-pass
             # compositor supplies the requested moody grade.  The survivor
@@ -2889,8 +3371,12 @@ class SceneFactory:
                 _safe_set(scene.world.mist_settings, "start", 9.0 if self.theme == "last_survivor" else 32.0)
                 _safe_set(scene.world.mist_settings, "depth", 48.0 if self.theme == "last_survivor" else 95.0)
                 _safe_set(scene.world.mist_settings, "falloff", "QUADRATIC")
+        elif self.theme == "history_fort_cinematic":
+            _safe_set(scene.view_settings, "exposure", -0.04)
+            _safe_set(scene.view_settings, "gamma", 1.0)
         else:
-            _safe_set(scene.view_settings, "exposure", 0.08 if self.theme not in {"space_voyage", "tech_lab", "abstract_shapes"} else 0.22)
+            dark_themes = {"space_voyage", "tech_lab", "abstract_shapes", "space_frontier", "city_finance"}
+            _safe_set(scene.view_settings, "exposure", 0.24 if self.theme in dark_themes else 0.08)
         cycles = scene.cycles
         _safe_set(cycles, "device", "CPU")
         _safe_set(cycles, "use_adaptive_sampling", bool(profile.get("use_adaptive_sampling", True)))
@@ -2967,6 +3453,9 @@ class SceneFactory:
             "last_survivor": self.build_last_survivor,
             "nature_valley": self.build_nature,
             "history_fort": self.build_history_fort,
+            "space_frontier": self.build_space_frontier,
+            "history_fort_cinematic": self.build_history_fort_cinematic,
+            "city_finance": self.build_city_finance,
             "abstract_shapes": self.build_abstract,
         }
         builders[self.theme]()

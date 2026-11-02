@@ -1,3 +1,4 @@
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -28,6 +29,9 @@ def test_blender_theme_catalog_marks_blender_as_primary(api_client: TestClient) 
         "last_survivor",
         "nature_valley",
         "history_fort",
+        "space_frontier",
+        "history_fort_cinematic",
+        "city_finance",
         "abstract_shapes",
     ]
     default = payload["default_request"]
@@ -155,6 +159,36 @@ def test_blender_preview_selects_last_survivor_with_piper_joe_hero(api_client: T
     assert payload["request"]["include_hero_voice"] is True
     assert payload["request"]["hero_voice_id"] == "en_male_heroic"
     assert len(payload["plan"]["hero_dialogue"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("theme", "environment"),
+    [
+        ("space_frontier", "space_station"),
+        ("history_fort_cinematic", "fort_cinematic"),
+        ("city_finance", "city_finance"),
+    ],
+)
+def test_blender_preview_accepts_new_cinematic_themes(
+    api_client: TestClient,
+    theme: str,
+    environment: str,
+) -> None:
+    response = api_client.post(
+        "/api/jobs/blender-3d/preview",
+        json={
+            "script_text": "A plain object moves through an empty room.",
+            "duration_sec": 4,
+            "theme": theme,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["topic"]["theme"] == theme
+    assert payload["topic"]["environment"] == environment
+    assert payload["request"]["theme"] == theme
+    assert payload["total_frames"] == 60
 
 
 def test_blender_invalid_request_is_rejected_before_enqueue(api_client: TestClient) -> None:

@@ -51,6 +51,18 @@ def test_global_conflict_selects_ww2_battlefield_with_precedence() -> None:
         ),
         ("Trees in the forest stood beside a river below green mountains.", "nature_valley"),
         ("The ancient king entered the royal fort beside the palace.", "history_fort"),
+        (
+            "A docking spacecraft approached the orbital space station above a ringed planet in deep space.",
+            "space_frontier",
+        ),
+        (
+            "At golden dawn, cavalry crossed the royal road toward the hill fort and its monumental gate.",
+            "history_fort_cinematic",
+        ),
+        (
+            "In the financial district, skyscrapers rose around the stock exchange during a bull market rally.",
+            "city_finance",
+        ),
         ("A plain object moves through an empty room.", "abstract_shapes"),
     ],
 )
@@ -61,6 +73,48 @@ def test_other_topics_select_matching_procedural_scene(script: str, theme: str) 
     assert plan.request.theme == theme
     assert plan.captions
     assert plan.scene_beats[0]["start_sec"] == 0.0
+
+
+@pytest.mark.parametrize(
+    ("script", "theme", "environment", "captions"),
+    [
+        (
+            "Title: Signal at the Frontier\n"
+            "A docking spacecraft approached the orbital station above a ringed planet while a signal arrived from deep space.",
+            "space_frontier",
+            "space_station",
+            ["SIGNAL AT THE FRONTIER", "ORBITAL STATION", "BEYOND THE RINGS", "SIGNAL FROM DEEP SPACE"],
+        ),
+        (
+            "Title: The Golden Fort\n"
+            "At dawn, royal banners rose above the hill fort as the king's cavalry approached the royal gate of the old empire.",
+            "history_fort_cinematic",
+            "fort_cinematic",
+            ["THE GOLDEN FORT", "GATE OF KINGS", "BANNERS AT DAWN", "THE OLD EMPIRE"],
+        ),
+        (
+            "Title: After the Bell\n"
+            "At night in the financial district, capital moved across the trading floor as a bull run lifted the stock exchange.",
+            "city_finance",
+            "city_finance",
+            ["AFTER THE BELL", "MARKETS AFTER DARK", "CAPITAL IN MOTION", "THE BULL RUN"],
+        ),
+    ],
+)
+def test_new_cinematic_themes_select_dedicated_sets_and_captions(
+    script: str,
+    theme: str,
+    environment: str,
+    captions: list[str],
+) -> None:
+    plan = plan_blender_3d(script, {"duration_sec": 8})
+
+    assert plan.topic.theme == theme
+    assert plan.topic.environment == environment
+    assert plan.request.theme == theme
+    assert plan.captions == captions
+    assert plan.to_dict()["planner_version"] == "blender3d-plan-v4"
+    assert any("new cinematic Blender theme pack" in warning for warning in plan.warnings)
 
 
 def test_jungle_war_has_moody_captions_and_wins_over_generic_battlefield() -> None:

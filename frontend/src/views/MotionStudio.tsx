@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Braces,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clapperboard,
@@ -86,6 +87,16 @@ export const MotionStudioView: React.FC<{
   );
   const isAuto = template === 'auto';
   const isBlender = template === 'blender_3d';
+  const featuredBlenderThemes = useMemo(() => {
+    const featuredIds = ['last_survivor', 'space_frontier', 'history_fort_cinematic', 'city_finance'];
+    return featuredIds
+      .map((id) => blenderThemes.find((theme) => theme.id === id))
+      .filter((theme): theme is BlenderThemeInfo => Boolean(theme));
+  }, [blenderThemes]);
+  const selectedBlenderTheme = useMemo(
+    () => (blenderTheme === 'auto' ? null : blenderThemes.find((theme) => theme.id === blenderTheme) || null),
+    [blenderTheme, blenderThemes]
+  );
 
   useEffect(() => {
     api
@@ -267,14 +278,21 @@ export const MotionStudioView: React.FC<{
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-[11px] font-bold tracking-widest text-amber-300">
-            <Box className="h-3.5 w-3.5" /> BLENDER 3D ULTRA FAST · 720P / 15FPS · LOCAL CPU
+    <div className="min-w-0 space-y-4 sm:space-y-5">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:flex-wrap">
+        <div className="min-w-0">
+          <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[10px] font-bold tracking-widest text-amber-300 sm:text-[11px]">
+            <Box className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">BLENDER 3D ULTRA FAST · 720P / 15FPS · LOCAL CPU</span>
           </div>
-          <h2 className="mt-3 text-2xl font-black tracking-tight text-white">Motion Studio — Blender 3D</h2>
-          <p className="mt-1 max-w-3xl text-sm text-slate-400">
+          <h2 className="mt-3 text-[1.65rem] font-black leading-tight tracking-tight text-white sm:text-2xl">
+            Motion Studio — Blender 3D
+          </h2>
+          <p className="mt-1 text-sm leading-relaxed text-slate-400 sm:hidden">
+            Paste a script, choose Auto or a cinematic Blender pack, validate the plan, then queue
+            the local 720p render.
+          </p>
+          <p className="mt-1 hidden max-w-3xl text-sm text-slate-400 sm:block">
             Blender is the primary engine and Ultra Fast is now the saved default. Paste a script and
             the parser plus topic cues choose a procedural 3D scene—World War II becomes the large
             battlefield, jungle/forest ambush scripts become the dark rainy Jungle War set, and
@@ -285,18 +303,19 @@ export const MotionStudioView: React.FC<{
             below only as a legacy option for older jobs.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:flex sm:w-auto">
           <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${
+            className={`inline-flex min-h-11 min-w-0 items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium ${
               wsConnected ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'
             }`}
           >
-            <span className={`h-2 w-2 rounded-full ${wsConnected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-            {wsConnected ? 'Job stream live' : 'Job stream reconnecting'}
+            <span className={`h-2 w-2 shrink-0 rounded-full ${wsConnected ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+            <span className="truncate">{wsConnected ? 'Job stream live' : 'Job stream reconnecting'}</span>
           </span>
           <button
+            type="button"
             onClick={onOpenQueue}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-800"
           >
             <ListChecks className="h-4 w-4" /> Render Queue
           </button>
@@ -309,16 +328,17 @@ export const MotionStudioView: React.FC<{
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
-        <section className="space-y-5 rounded-2xl border border-slate-800 bg-[#111520] p-5">
+      <div className="grid min-w-0 gap-4 sm:gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
+        <section className="min-w-0 space-y-5 rounded-2xl border border-slate-800 bg-[#111520] p-3 sm:p-5">
           <div>
             <div className="mb-3 flex items-center gap-2 text-sm font-bold text-white">
               <Clapperboard className="h-4 w-4 text-amber-400" /> 1. Choose Blender or a legacy template
             </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">
               <button
+                type="button"
                 onClick={() => selectTemplate('blender_3d')}
-                className={`rounded-xl border p-3 text-left transition ${
+                className={`col-span-2 min-h-28 rounded-xl border p-3 text-left transition sm:col-span-1 ${
                   isBlender
                     ? 'border-orange-400/80 bg-orange-500/15 text-orange-100'
                     : 'border-slate-800 bg-slate-950/40 text-slate-300 hover:border-slate-600'
@@ -333,8 +353,9 @@ export const MotionStudioView: React.FC<{
                 <div className="mt-2 font-mono text-[10px] text-orange-200/80">Ultra Fast · 1280×720 output · 15fps</div>
               </button>
               <button
+                type="button"
                 onClick={() => selectTemplate('auto')}
-                className={`rounded-xl border p-3 text-left transition ${
+                className={`min-h-28 rounded-xl border p-3 text-left transition ${
                   isAuto
                     ? 'border-amber-500/70 bg-amber-500/15 text-amber-100'
                     : 'border-slate-800 bg-slate-950/40 text-slate-300 hover:border-slate-600'
@@ -353,8 +374,9 @@ export const MotionStudioView: React.FC<{
                 return (
                   <button
                     key={item.id}
+                    type="button"
                     onClick={() => selectTemplate(item.id)}
-                    className={`rounded-xl border p-3 text-left transition ${
+                    className={`min-h-28 rounded-xl border p-3 text-left transition ${
                       active
                         ? 'border-amber-500/70 bg-amber-500/15 text-amber-100'
                         : 'border-slate-800 bg-slate-950/40 text-slate-300 hover:border-slate-600'
@@ -381,7 +403,7 @@ export const MotionStudioView: React.FC<{
                   'Ultra Fast 1280×720 output · 15fps',
                   '1 adaptive sample + OIDN',
                   'drone camera + depth of field',
-                  `${blenderThemes.length || 9} procedural themes`,
+                  `${blenderThemes.length || 13} procedural themes`,
                 ].map((rule) => (
                   <span key={rule} className="rounded-full bg-slate-800 px-2 py-1 font-mono text-[10px] text-slate-400">
                     {rule}
@@ -422,7 +444,7 @@ export const MotionStudioView: React.FC<{
               value={scriptText}
               onChange={(e) => setScriptText(e.target.value)}
               rows={5}
-              className="w-full rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-sm leading-relaxed text-slate-100 outline-none focus:border-sky-500"
+              className="min-h-36 w-full rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-base leading-relaxed text-slate-100 outline-none focus:border-sky-500 sm:text-sm"
               placeholder="Bilal qile mein aata hai. Zara mash'al jalati hai. Dono baat karte hain."
             />
             <p className="mt-1 text-[11px] text-slate-500">
@@ -435,17 +457,115 @@ export const MotionStudioView: React.FC<{
           </div>
 
           {isBlender ? (
-            <div className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-4">
+            <div className="rounded-xl border border-orange-500/25 bg-orange-500/5 p-3 sm:p-4">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <Box className="h-4 w-4 text-orange-400" /> 3. Blender scene controls
               </div>
+
+              <div className="mt-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    Featured cinematic packs
+                  </span>
+                  <span className="text-[10px] font-medium text-slate-500">Swipe on mobile</span>
+                </div>
+                <div
+                  className="scrollbar-none -mx-1 mt-2 flex snap-x snap-mandatory gap-2 overflow-x-auto px-1 pb-1"
+                  role="group"
+                  aria-label="Featured Blender themes"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={blenderTheme === 'auto'}
+                    onClick={() => setBlenderTheme('auto')}
+                    className={`relative min-h-32 min-w-[10.75rem] snap-start overflow-hidden rounded-xl border p-3 text-left transition sm:min-w-[12rem] ${
+                      blenderTheme === 'auto'
+                        ? 'border-amber-300 ring-2 ring-amber-400/50'
+                        : 'border-slate-700 hover:border-slate-500'
+                    }`}
+                    style={{
+                      background:
+                        'linear-gradient(145deg, rgba(30,41,59,0.98) 0%, rgba(15,23,42,0.98) 58%, rgba(245,158,11,0.72) 145%)',
+                    }}
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="rounded-full bg-amber-400 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-slate-950">
+                        Smart Auto
+                      </span>
+                      {blenderTheme === 'auto' && <CheckCircle2 className="h-4 w-4 text-amber-300" />}
+                    </span>
+                    <span className="mt-3 block text-sm font-black text-white">Auto from script</span>
+                    <span className="mt-1 line-clamp-2 block text-[11px] leading-relaxed text-slate-300">
+                      Let topic cues choose the best procedural 3D set.
+                    </span>
+                    <span className="mt-3 flex gap-1" aria-hidden="true">
+                      {['#1E293B', '#334155', '#F59E0B', '#38BDF8'].map((color) => (
+                        <span
+                          key={color}
+                          className="h-2.5 w-7 rounded-full border border-white/20"
+                          style={{ backgroundColor: color }}
+                        />
+                      ))}
+                    </span>
+                  </button>
+
+                  {featuredBlenderThemes.map((theme) => {
+                    const active = blenderTheme === theme.id;
+                    const isNew = theme.id !== 'last_survivor';
+                    return (
+                      <button
+                        key={theme.id}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setBlenderTheme(theme.id)}
+                        className={`relative min-h-32 min-w-[10.75rem] snap-start overflow-hidden rounded-xl border p-3 text-left transition sm:min-w-[12rem] ${
+                          active
+                            ? 'border-white ring-2 ring-orange-300/70'
+                            : 'border-slate-700 hover:border-slate-400'
+                        }`}
+                        style={{
+                          background: `linear-gradient(145deg, ${theme.palette.sky} 0%, ${theme.palette.ground} 62%, ${theme.palette.accent} 150%)`,
+                        }}
+                      >
+                        <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-black/10" />
+                        <span className="relative flex items-center justify-between gap-2">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wider ${
+                              isNew ? 'bg-white text-slate-950' : 'bg-red-500 text-white'
+                            }`}
+                          >
+                            {isNew ? 'New Pack' : 'Hero Story'}
+                          </span>
+                          {active && <CheckCircle2 className="h-4 w-4 text-white" />}
+                        </span>
+                        <span className="relative mt-3 block text-sm font-black leading-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.65)]">
+                          {theme.label}
+                        </span>
+                        <span className="relative mt-1 line-clamp-2 block text-[11px] leading-relaxed text-slate-100/90 [text-shadow:0_1px_3px_rgba(0,0,0,0.65)]">
+                          {theme.description}
+                        </span>
+                        <span className="relative mt-3 flex gap-1" aria-hidden="true">
+                          {Object.values(theme.palette).map((color) => (
+                            <span
+                              key={color}
+                              className="h-2.5 w-7 rounded-full border border-white/25"
+                              style={{ backgroundColor: color }}
+                            />
+                          ))}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
                 <label className="space-y-1 text-xs font-semibold text-slate-300">
                   Scene theme
                   <select
                     value={blenderTheme}
                     onChange={(e) => setBlenderTheme(e.target.value as BlenderThemeSelection)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white sm:text-sm"
                   >
                     <option value="auto">Auto from script (recommended)</option>
                     {blenderThemes.map((theme) => (
@@ -464,11 +584,33 @@ export const MotionStudioView: React.FC<{
                     step={0.5}
                     value={blenderDuration}
                     onChange={(e) => setBlenderDuration(Number(e.target.value))}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                    inputMode="decimal"
+                    className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white sm:text-sm"
                   />
                 </label>
               </div>
-              <label className="mt-3 flex cursor-pointer items-start gap-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+              {selectedBlenderTheme && (
+                <div className="mt-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-white">{selectedBlenderTheme.label}</span>
+                    <span className="font-mono text-[10px] text-slate-500">{selectedBlenderTheme.environment}</span>
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-400">
+                    {selectedBlenderTheme.description}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {selectedBlenderTheme.default_captions.map((caption) => (
+                      <span
+                        key={caption}
+                        className="rounded-full bg-slate-800 px-2 py-1 font-mono text-[9px] text-slate-300"
+                      >
+                        {caption}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <label className="mt-3 flex min-h-11 cursor-pointer items-start gap-3 rounded-lg border border-slate-700 bg-slate-950/60 p-3">
                 <input
                   type="checkbox"
                   checked={includeCaptions}
@@ -516,25 +658,32 @@ export const MotionStudioView: React.FC<{
                       : 'Standard uses max 3 adaptive Cycles samples with fast OIDN denoise.'}{' '}
                 Local Blender Python: <span className="break-all font-mono text-slate-300">{String(blenderRuntime?.python || 'not reported yet')}</span>
               </div>
-              <label htmlFor="blender-request" className="mt-3 block text-xs font-bold text-white">
-                Advanced Blender overrides JSON
-              </label>
-              <textarea
-                id="blender-request"
-                value={requestText}
-                onChange={(e) => setRequestText(e.target.value)}
-                rows={4}
-                spellCheck={false}
-                className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950/70 p-3 font-mono text-xs leading-relaxed text-slate-100 outline-none focus:border-orange-500"
-                placeholder='{"camera_move": "drone", "intensity": 1.1}'
-              />
-              <p className="mt-1 text-[11px] text-slate-500">
-                Theme, duration, captions, FPS and quality above override matching JSON fields.
-                Leave width/height unset to keep the 1280×720 output default; camera_move defaults to drone. For separate Last Survivor movie shots, add "shot_style": "wide_hero", "enemy_pov", "hero_back_close" or "ambush_action".
-              </p>
+              <details className="mt-3 rounded-lg border border-slate-700 bg-slate-950/50">
+                <summary className="flex min-h-11 cursor-pointer items-center px-3 text-xs font-bold text-white">
+                  Advanced Blender overrides JSON
+                </summary>
+                <div className="border-t border-slate-800 p-3 pt-2">
+                  <label htmlFor="blender-request" className="sr-only">
+                    Advanced Blender overrides JSON
+                  </label>
+                  <textarea
+                    id="blender-request"
+                    value={requestText}
+                    onChange={(e) => setRequestText(e.target.value)}
+                    rows={4}
+                    spellCheck={false}
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950/70 p-3 font-mono text-base leading-relaxed text-slate-100 outline-none focus:border-orange-500 sm:text-xs"
+                    placeholder='{"camera_move": "drone", "intensity": 1.1}'
+                  />
+                  <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                    Theme, duration, captions, FPS and quality above override matching JSON fields.
+                    Leave width/height unset to keep the 1280×720 output default; camera_move defaults to drone. For separate Last Survivor movie shots, add "shot_style": "wide_hero", "enemy_pov", "hero_back_close" or "ambush_action".
+                  </p>
+                </div>
+              </details>
             </div>
           ) : isAuto ? (
-            <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4">
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 sm:p-4">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
                 <Braces className="h-4 w-4 text-amber-400" /> 3. Auto-generated requests
               </div>
@@ -612,13 +761,13 @@ export const MotionStudioView: React.FC<{
             </div>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="space-y-1 text-xs font-semibold text-slate-300">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <label className="col-span-2 space-y-1 text-xs font-semibold text-slate-300 sm:col-span-1">
               Mode
               <select
                 value={mode}
                 onChange={(e) => setMode(e.target.value as MotionJobMode)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white sm:text-sm"
               >
                 <option value="render">
                   {isBlender ? 'Build .blend + render MP4' : isAuto ? 'Build clips + render combined MP4' : 'Build + render MP4'}
@@ -633,7 +782,7 @@ export const MotionStudioView: React.FC<{
               <select
                 value={fps}
                 onChange={(e) => setFps(Number(e.target.value) as 15 | 20 | 24 | 30 | 60)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white sm:text-sm"
               >
                 {isBlender && <option value={15}>15 (Ultra Fast)</option>}
                 {isBlender && <option value={20}>20</option>}
@@ -647,7 +796,7 @@ export const MotionStudioView: React.FC<{
               <select
                 value={quality}
                 onChange={(e) => setQuality(e.target.value as MotionJobQuality)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-white"
+                className="min-h-11 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-base text-white sm:text-sm"
               >
                 {isBlender && <option value="ultra_fast">Ultra Fast (default)</option>}
                 {isBlender && <option value="turbo">Turbo (native every frame)</option>}
@@ -658,18 +807,20 @@ export const MotionStudioView: React.FC<{
             </label>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="sticky bottom-[calc(5rem+env(safe-area-inset-bottom))] z-20 -mx-1 grid grid-cols-1 gap-2 rounded-2xl border border-slate-700/80 bg-[#111520]/95 p-2 shadow-2xl backdrop-blur min-[430px]:grid-cols-2 lg:static lg:mx-0 lg:flex lg:flex-wrap lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none lg:backdrop-blur-0">
             <button
+              type="button"
               onClick={handlePreview}
               disabled={busyPreview || busySubmit}
-              className="inline-flex items-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/15 px-4 py-2.5 text-sm font-bold text-sky-200 hover:bg-sky-500/25 disabled:opacity-50"
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg border border-sky-500/40 bg-sky-500/15 px-4 py-3 text-sm font-bold text-sky-200 hover:bg-sky-500/25 disabled:opacity-50 lg:w-auto"
             >
               <Eye className="h-4 w-4" /> {busyPreview ? 'Validating…' : 'Preview / Validate'}
             </button>
             <button
+              type="button"
               onClick={handleQueue}
               disabled={busyPreview || busySubmit}
-              className="inline-flex items-center gap-2 rounded-lg bg-amber-500 px-4 py-2.5 text-sm font-black text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-amber-500 px-4 py-3 text-sm font-black text-slate-950 hover:bg-amber-400 disabled:opacity-50 lg:w-auto"
             >
               {mode === 'render' ? <Play className="h-4 w-4" /> : <Hammer className="h-4 w-4" />}
               {busySubmit
@@ -698,8 +849,8 @@ export const MotionStudioView: React.FC<{
           </div>
         </section>
 
-        <section className="space-y-5">
-          <div className="rounded-2xl border border-slate-800 bg-[#111520] p-5">
+        <section className="min-w-0 space-y-4 sm:space-y-5">
+          <div className="rounded-2xl border border-slate-800 bg-[#111520] p-3 sm:p-5">
             <h3 className="text-sm font-bold text-white">
               {isBlender ? 'Parser & Blender scene plan' : isAuto ? 'Parser & auto clip plan' : 'Parser & prepared request'}
             </h3>
@@ -871,7 +1022,7 @@ export const MotionStudioView: React.FC<{
             )}
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-[#111520] p-5">
+          <div className="rounded-2xl border border-slate-800 bg-[#111520] p-3 sm:p-5">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-white">Studio jobs</h3>
               <span className="rounded-full bg-slate-800 px-2 py-1 text-[11px] text-slate-400">{motionJobs.length}</span>
@@ -954,8 +1105,10 @@ export const MotionStudioView: React.FC<{
                   return (
                     <article key={job.id} className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
                       <button
+                        type="button"
+                        aria-expanded={expanded}
                         onClick={() => setExpandedJobId(expanded ? null : job.id)}
-                        className="flex w-full items-center justify-between gap-2 text-left"
+                        className="flex min-h-11 w-full items-center justify-between gap-2 py-1 text-left"
                       >
                         <span className="min-w-0">
                           <span className="block truncate font-mono text-[11px] text-amber-300">{job.id}</span>
@@ -990,12 +1143,12 @@ export const MotionStudioView: React.FC<{
                         <div className="mt-3 space-y-3">
                           {videoUrl && job.status === 'completed' && (
                             <>
-                              <video src={videoUrl} controls className="aspect-video w-full rounded-lg bg-black" />
+                              <video src={videoUrl} controls playsInline preload="metadata" className="aspect-video w-full rounded-lg bg-black" />
                               <div className="flex flex-wrap items-center gap-2">
                                 <a
                                   href={apiUrl(`/api/jobs/${job.id}/artifacts/video`)}
                                   download={`${job.id}-${job.job_type === 'blender_3d' ? 'blender' : 'motion'}-video.mp4`}
-                                  className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-2 text-[11px] font-black text-slate-950 hover:bg-emerald-400"
+                                  className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-emerald-500 px-3 py-2 text-[11px] font-black text-slate-950 hover:bg-emerald-400"
                                 >
                                   <Download className="h-3.5 w-3.5" /> Download MP4
                                 </a>
@@ -1081,7 +1234,7 @@ export const MotionStudioView: React.FC<{
                             {(job.status === 'queued' || job.status === 'running' || job.status === 'paused') && (
                               <button
                                 onClick={() => controlJob(job.id, 'cancel')}
-                                className="inline-flex items-center gap-1 rounded-md bg-red-500/15 px-2 py-1.5 text-[11px] font-bold text-red-300"
+                                className="inline-flex min-h-11 items-center gap-1 rounded-md bg-red-500/15 px-3 py-2 text-[11px] font-bold text-red-300"
                               >
                                 <XCircle className="h-3.5 w-3.5" /> Cancel
                               </button>
@@ -1089,7 +1242,7 @@ export const MotionStudioView: React.FC<{
                             {job.status === 'running' && (
                               <button
                                 onClick={() => controlJob(job.id, 'pause')}
-                                className="rounded-md bg-slate-800 px-2 py-1.5 text-[11px] font-bold text-slate-200"
+                                className="min-h-11 rounded-md bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200"
                               >
                                 Pause
                               </button>
@@ -1097,7 +1250,7 @@ export const MotionStudioView: React.FC<{
                             {job.status === 'paused' && (
                               <button
                                 onClick={() => controlJob(job.id, 'resume')}
-                                className="rounded-md bg-slate-800 px-2 py-1.5 text-[11px] font-bold text-slate-200"
+                                className="min-h-11 rounded-md bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200"
                               >
                                 Resume
                               </button>
@@ -1105,14 +1258,14 @@ export const MotionStudioView: React.FC<{
                             {(job.status === 'failed' || job.status === 'cancelled' || job.status === 'interrupted') && (
                               <button
                                 onClick={() => controlJob(job.id, 'retry')}
-                                className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-1.5 text-[11px] font-bold text-amber-300"
+                                className="inline-flex min-h-11 items-center gap-1 rounded-md bg-amber-500/15 px-3 py-2 text-[11px] font-bold text-amber-300"
                               >
                                 <RotateCcw className="h-3.5 w-3.5" /> Retry
                               </button>
                             )}
                             <button
                               onClick={() => api.get(`/api/jobs/${job.id}`).then(onJobUpdated)}
-                              className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2 py-1.5 text-[11px] font-bold text-slate-200"
+                              className="inline-flex min-h-11 items-center gap-1 rounded-md bg-slate-800 px-3 py-2 text-[11px] font-bold text-slate-200"
                             >
                               <RefreshCw className="h-3.5 w-3.5" /> Refresh
                             </button>
@@ -1126,7 +1279,7 @@ export const MotionStudioView: React.FC<{
                                   href={apiUrl(`/api/jobs/${job.id}/artifacts/${key}`)}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:bg-slate-800"
+                                  className="inline-flex min-h-11 max-w-full items-center gap-1 break-all rounded-md border border-slate-700 px-2.5 py-2 text-[10px] text-slate-300 hover:bg-slate-800"
                                 >
                                   <Download className="h-3 w-3" /> {key}
                                 </a>

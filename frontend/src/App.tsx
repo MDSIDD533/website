@@ -60,6 +60,13 @@ const NAV_ITEMS: { id: NavSection; label: string; icon: React.ComponentType<any>
   { id: 'settings', label: 'Project Settings', icon: Settings },
 ];
 
+const MOBILE_NAV_ITEMS: { id: NavSection; label: string; icon: React.ComponentType<any> }[] = [
+  { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
+  { id: 'studio', label: 'Studio', icon: Clapperboard },
+  { id: 'create', label: 'Create', icon: PlusSquare },
+  { id: 'queue', label: 'Queue', icon: ListChecks },
+];
+
 const navFromPath = (): NavSection =>
   typeof window !== 'undefined' && window.location.pathname === '/studio' ? 'studio' : 'dashboard';
 
@@ -82,6 +89,20 @@ export const App: React.FC = () => {
     window.addEventListener('popstate', onPopState);
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileMenuOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [mobileMenuOpen]);
 
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [activeProject, setActiveProject] = useState<ProjectSummary | null>(null);
@@ -241,7 +262,7 @@ export const App: React.FC = () => {
   const runningCount = jobs.filter((j) => j.status === 'running' || j.status === 'queued').length;
 
   return (
-    <div className="flex min-h-screen bg-[#090b10] text-slate-100">
+    <div className="flex min-h-[100dvh] w-full overflow-x-clip bg-[#090b10] text-slate-100">
       {/* Desktop Sidebar */}
       <aside className="hidden w-64 shrink-0 border-r border-slate-800/90 bg-[#0d1018] lg:flex lg:flex-col">
         <div className="border-b border-slate-800/80 px-5 py-4">
@@ -297,57 +318,83 @@ export const App: React.FC = () => {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="fixed inset-0 z-50 flex lg:hidden">
-          <div className="w-64 bg-[#0d1018] border-r border-slate-800 p-4 flex flex-col">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <span className="font-bold text-sm text-amber-400">SIDD AI VIDEO STUDIO</span>
-              <button onClick={() => setMobileMenuOpen(false)}>
-                <X className="h-5 w-5 text-slate-400" />
+        <div className="fixed inset-0 z-50 flex lg:hidden" role="dialog" aria-modal="true" aria-label="All studio sections">
+          <button
+            type="button"
+            aria-label="Close navigation menu"
+            className="absolute inset-0 bg-black/70"
+            onClick={() => setMobileMenuOpen(false)}
+          />
+          <div className="relative flex h-full w-[min(20rem,85vw)] flex-col overflow-y-auto border-r border-slate-800 bg-[#0d1018] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <span className="text-sm font-bold text-amber-400">SIDD AI VIDEO STUDIO</span>
+              <button
+                type="button"
+                aria-label="Close navigation menu"
+                onClick={() => setMobileMenuOpen(false)}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-700 text-slate-300"
+              >
+                <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="mt-3 space-y-1 overflow-y-auto">
+            <nav className="mt-3 space-y-1" aria-label="All sections">
               {NAV_ITEMS.map((item) => {
                 const Icon = item.icon;
                 return (
                   <button
                     key={item.id}
+                    type="button"
+                    aria-current={nav === item.id ? 'page' : undefined}
                     onClick={() => {
                       setNav(item.id);
                       setMobileMenuOpen(false);
                     }}
-                    className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium ${
-                      nav === item.id ? 'bg-amber-500/15 text-amber-300' : 'text-slate-300'
+                    className={`flex min-h-11 w-full items-center justify-between gap-2.5 rounded-lg px-3 py-3 text-left text-sm font-medium ${
+                      nav === item.id ? 'bg-amber-500/15 text-amber-300' : 'text-slate-300 hover:bg-slate-800/70'
                     }`}
                   >
-                    <Icon className="h-4 w-4" />
-                    {item.label}
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      <Icon className="h-5 w-5 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </span>
+                    {item.id === 'queue' && runningCount > 0 && (
+                      <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-slate-950">
+                        {runningCount}
+                      </span>
+                    )}
                   </button>
                 );
               })}
-            </div>
+            </nav>
           </div>
-          <div className="flex-1 bg-black/60" onClick={() => setMobileMenuOpen(false)} />
         </div>
       )}
 
       {/* Main Content Area */}
       <div className="flex flex-1 flex-col min-w-0">
         {/* Top Header */}
-        <header className="sticky top-0 z-30 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800/80 bg-[#0d1018]/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-center gap-3">
+        <header className="sticky top-0 z-30 flex flex-nowrap items-center justify-between gap-2 border-b border-slate-800/80 bg-[#0d1018]/95 px-3 py-2.5 backdrop-blur sm:gap-3 sm:px-4">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
             <button
+              type="button"
+              aria-label="Open navigation menu"
+              aria-haspopup="dialog"
+              aria-expanded={mobileMenuOpen}
               onClick={() => setMobileMenuOpen(true)}
-              className="rounded-lg border border-slate-700 p-1.5 text-slate-300 lg:hidden"
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-700 text-slate-300 lg:hidden"
             >
-              <Menu className="h-4 w-4" />
+              <Menu className="h-5 w-5" />
             </button>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-slate-400 hidden sm:inline">Active Project:</span>
+            <div className="flex min-w-0 flex-1 items-center gap-2 text-xs">
+              <label htmlFor="active-project" className="hidden shrink-0 text-slate-400 sm:inline">
+                Active Project:
+              </label>
               {projects.length > 0 ? (
                 <select
+                  id="active-project"
                   value={activeProject?.id || ''}
                   onChange={(e) => handleSelectProject(e.target.value)}
-                  className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-1.5 text-xs font-medium text-white"
+                  className="h-11 min-w-0 max-w-[58vw] flex-1 truncate rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 font-medium text-white sm:max-w-xs sm:flex-none"
                 >
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -356,39 +403,46 @@ export const App: React.FC = () => {
                   ))}
                 </select>
               ) : (
-                <span className="text-slate-500">None yet</span>
+                <span className="truncate text-slate-500">No project yet</span>
               )}
               {activeProject && (
-                <span className="hidden md:inline-flex items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300">
+                <span className="hidden shrink-0 items-center gap-1 rounded bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-300 lg:inline-flex">
                   <CheckCircle2 className="h-3 w-3" /> Auto-Saved
                 </span>
               )}
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 text-xs">
+          <div className="flex shrink-0 items-center gap-2.5 text-xs">
             {runningCount > 0 && (
               <button
+                type="button"
+                aria-label={`${runningCount} jobs rendering. Open render queue.`}
                 onClick={() => setNav('queue')}
-                className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-1 text-amber-300 animate-pulse"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-full border border-amber-500/40 bg-amber-500/15 px-3 py-2 text-amber-300 animate-pulse"
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                {runningCount} Job Rendering...
+                <Sparkles className="h-4 w-4" />
+                <span>{runningCount}</span>
+                <span className="hidden min-[430px]:inline">rendering</span>
               </button>
             )}
-            <span className="hidden sm:inline text-slate-400">
+            <span className="hidden text-slate-400 md:inline">
               Free Disk: <strong className="text-slate-200">{storage ? `${storage.disk_free_gb} GB` : '...'}</strong>
             </span>
           </div>
         </header>
 
         {toast && (
-          <div className="mx-4 mt-3 rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-2 text-xs font-medium text-amber-200">
+          <div
+            role="status"
+            aria-live="polite"
+            className="mx-3 mt-3 rounded-lg border border-amber-500/40 bg-amber-500/15 px-4 py-3 text-xs font-medium text-amber-200 sm:mx-4"
+          >
             {toast}
           </div>
         )}
 
-        <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto">
+        <main className="mx-auto w-full min-w-0 max-w-7xl flex-1 p-3 pb-[calc(6.75rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-[calc(6.75rem+env(safe-area-inset-bottom))] lg:pb-6">
           {nav === 'dashboard' && (
             <DashboardView
               projects={projects}
@@ -553,6 +607,50 @@ export const App: React.FC = () => {
             />
           )}
         </main>
+
+        <nav
+          aria-label="Primary mobile navigation"
+          className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800 bg-[#0d1018]/95 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_28px_rgba(0,0,0,0.35)] backdrop-blur lg:hidden"
+        >
+          <div className="mx-auto grid max-w-xl grid-cols-5">
+            {MOBILE_NAV_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const active = nav === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => setNav(item.id)}
+                  className={`relative flex min-h-[4.25rem] min-w-0 flex-col items-center justify-center gap-1 px-1 py-2 text-[10px] font-semibold ${
+                    active ? 'text-amber-300' : 'text-slate-400'
+                  }`}
+                >
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span className="max-w-full truncate">{item.label}</span>
+                  {item.id === 'queue' && runningCount > 0 && (
+                    <span className="absolute right-[16%] top-1.5 min-w-5 rounded-full bg-amber-500 px-1 py-0.5 text-center text-[9px] font-black text-slate-950">
+                      {runningCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={mobileMenuOpen}
+              aria-current={!MOBILE_NAV_ITEMS.some((item) => item.id === nav) ? 'page' : undefined}
+              onClick={() => setMobileMenuOpen(true)}
+              className={`flex min-h-[4.25rem] min-w-0 flex-col items-center justify-center gap-1 px-1 py-2 text-[10px] font-semibold ${
+                MOBILE_NAV_ITEMS.some((item) => item.id === nav) ? 'text-slate-400' : 'text-amber-300'
+              }`}
+            >
+              <Menu className="h-5 w-5 shrink-0" />
+              <span>More</span>
+            </button>
+          </div>
+        </nav>
       </div>
     </div>
   );
